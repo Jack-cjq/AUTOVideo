@@ -33,6 +33,7 @@ from blueprints.merchants import merchants_bp
 from blueprints.video_library import video_library_bp
 from blueprints.data_center import data_center_bp
 from blueprints.video_editor import video_editor_bp
+from blueprints.publish import publish_bp
 
 app = Flask(__name__, static_folder='../frontend/dist', static_url_path='')
 app.secret_key = os.getenv('SECRET_KEY', 'your-secret-key-change-in-production')
@@ -75,6 +76,7 @@ app.register_blueprint(merchants_bp)
 app.register_blueprint(video_library_bp)
 app.register_blueprint(data_center_bp)
 app.register_blueprint(video_editor_bp)
+app.register_blueprint(publish_bp)
 
 
 def init_db():
