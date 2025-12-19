@@ -34,8 +34,8 @@ MAX_CONTENT_LENGTH = 500 * 1024 * 1024  # 500MB
 app.config['UPLOAD_FOLDER'] = str(UPLOAD_FOLDER)
 app.config['MAX_CONTENT_LENGTH'] = MAX_CONTENT_LENGTH
 
-# 数据库配置（使用center的数据库）
-DB_PATH = os.path.join(os.path.dirname(__file__), '..', 'center', 'platform.db')
+# 数据库配置（使用center_code的数据库）
+DB_PATH = os.path.join(os.path.dirname(__file__), '..', 'center_code', 'platform.db')
 
 # 存储监听任务的状态
 listening_tasks = {}

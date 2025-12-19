@@ -170,7 +170,14 @@ class CenterClient:
             if response.status_code == 200:
                 data = response.json()
                 if data.get('code') == 200:
-                    accounts = data.get('data', [])
+                    # 接口返回的数据结构：{ "data": { "accounts": [...], ... } }
+                    response_data = data.get('data', {})
+                    if isinstance(response_data, dict):
+                        accounts = response_data.get('accounts', [])
+                    else:
+                        # 兼容旧版本：直接返回数组
+                        accounts = response_data if isinstance(response_data, list) else []
+                    
                     if accounts:
                         # 返回第一个账号的ID（一对一关系）
                         return accounts[0].get('id')
@@ -434,6 +441,13 @@ class CenterClient:
             else:
                 douyin_logger.error("Failed to register device after all retries, client will not start")
                 douyin_logger.error(f"Please ensure the center server is running at {self.center_base_url}")
+                douyin_logger.error("")
+                douyin_logger.error("Troubleshooting:")
+                douyin_logger.error("  1. Check if the center server is running")
+                douyin_logger.error("  2. Verify the server address is correct")
+                douyin_logger.error("  3. Set CENTER_BASE_URL environment variable if needed:")
+                douyin_logger.error("     Windows PowerShell: $env:CENTER_BASE_URL='http://127.0.0.1:5000'")
+                douyin_logger.error("     Linux/Mac: export CENTER_BASE_URL='http://127.0.0.1:5000'")
                 return
         
         self.is_running = True

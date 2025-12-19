@@ -99,17 +99,18 @@ def create_account():
 
 
 @accounts_bp.route('', methods=['GET'])
-@login_required
 def get_accounts():
     """
     获取账号列表接口
     
     请求方法: GET
     路径: /api/accounts
-    认证: 需要登录
+    认证: 
+        - 如果只查询device_id，不需要登录（设备端调用）
+        - 其他情况需要登录（管理端调用）
     
     查询参数:
-        device_id (string, 可选): 设备ID，筛选指定设备的账号
+        device_id (string, 可选): 设备ID，筛选指定设备的账号（设备端使用，不需要登录）
         platform (string, 可选): 平台类型，筛选指定平台的账号（douyin/kuaishou/xiaohongshu）
         login_status (string, 可选): 登录状态，筛选指定状态的账号（logged_in/logged_out）
         search (string, 可选): 搜索关键词，模糊匹配账号名称
@@ -147,16 +148,25 @@ def get_accounts():
         }
     
     说明:
+        - 如果只提供device_id参数，允许设备端调用（不需要登录）
+        - 其他情况需要登录认证
         - 支持多条件筛选和分页
         - 结果按创建时间倒序排列
     """
     try:
+        from flask import session
         device_id = request.args.get('device_id')
         platform = request.args.get('platform')
         login_status = request.args.get('login_status')
         search = request.args.get('search')
         limit = request.args.get('limit', type=int, default=50)
         offset = request.args.get('offset', type=int, default=0)
+        
+        # 如果只查询device_id，允许设备端调用（不需要登录）
+        # 其他情况需要登录
+        is_device_query = device_id and not platform and not login_status and not search
+        if not is_device_query and not session.get('logged_in'):
+            return response_error('请先登录', 401)
         
         with get_db() as db:
             query = db.query(Account)

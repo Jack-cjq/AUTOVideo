@@ -9,37 +9,35 @@ npm run dev
 
 ## 配置后端API地址
 
-### 方式1：修改 vite.config.js（推荐）
+前端默认连接到 `http://localhost:5000`（后端默认端口）。如果后端运行在其他端口，可以通过以下方式配置：
 
-编辑 `vite.config.js`，修改代理配置中的 `target`：
+### 方式1：使用环境变量（推荐）
 
-```javascript
-proxy: {
-  '/api': {
-    target: 'http://localhost:5001',  // 修改为你的后端实际端口
-    ...
-  }
-}
-```
-
-### 方式2：使用环境变量
-
-创建 `.env.development` 文件（已创建示例）：
+创建 `.env` 或 `.env.local` 文件：
 
 ```env
-VITE_API_BASE_URL=http://localhost:5001/api
+# 只配置端口号
+VITE_BACKEND_PORT=5001
+
+# 或配置完整URL
+VITE_BACKEND_URL=http://localhost:5001
 ```
 
-然后修改 `vite.config.js`：
-
-```javascript
-proxy: {
-  '/api': {
-    target: process.env.VITE_API_BASE_URL?.replace('/api', '') || 'http://localhost:5001',
-    ...
-  }
-}
+**Windows PowerShell:**
+```powershell
+$env:VITE_BACKEND_PORT="5001"
+npm run dev
 ```
+
+**Linux/Mac:**
+```bash
+export VITE_BACKEND_PORT=5001
+npm run dev
+```
+
+### 方式2：直接修改 vite.config.js
+
+如果不想使用环境变量，可以直接编辑 `vite.config.js` 中的 `backendUrl` 变量。
 
 ## 常见问题
 

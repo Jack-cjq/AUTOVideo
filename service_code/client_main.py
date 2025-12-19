@@ -6,6 +6,7 @@
 import os
 import sys
 import signal
+import requests
 from client.center_client import CenterClient
 from client.task_handler import create_task_handler
 from utils.log import douyin_logger
@@ -15,7 +16,35 @@ from utils.log import douyin_logger
 # 例如：
 #   Windows PowerShell: $env:CENTER_BASE_URL="http://192.168.1.100:5000"
 #   Linux/Mac: export CENTER_BASE_URL="http://192.168.1.100:5000"
-CENTER_BASE_URL = os.getenv('CENTER_BASE_URL', 'http://127.0.0.1:5001')
+DEFAULT_CENTER_BASE_URL = os.getenv('CENTER_BASE_URL', None)
+
+def detect_center_server():
+    """
+    自动检测中心服务器地址
+    尝试常见的端口：5000, 5001, 5002
+    """
+    if DEFAULT_CENTER_BASE_URL:
+        return DEFAULT_CENTER_BASE_URL
+    
+    # 尝试检测中心服务器
+    common_ports = [5000, 5001, 5002]
+    for port in common_ports:
+        url = f'http://127.0.0.1:{port}'
+        try:
+            response = requests.get(f'{url}/api/health', timeout=2)
+            if response.status_code == 200:
+                douyin_logger.info(f"Detected center server at {url}")
+                return url
+        except:
+            continue
+    
+    # 如果都检测不到，使用默认值
+    default_url = 'http://127.0.0.1:5001'
+    douyin_logger.warning(f"Could not detect center server, using default: {default_url}")
+    douyin_logger.warning("You can set CENTER_BASE_URL environment variable to specify the server address")
+    return default_url
+
+CENTER_BASE_URL = detect_center_server()
 
 def main():
     """主函数"""
