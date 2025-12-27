@@ -1,0 +1,66 @@
+2025-12-25 10:44:00.434 | INFO     | services.task_executor:execute_video_upload:202 - Starting upload: title=测试视频, tags=[]
+2025-12-25 10:44:00.436 | INFO     | uploader.douyin_uploader.main:__init__:73 - DouYinVideo initialized - title: '测试视频', tags: []
+2025-12-25 10:44:02.018 | INFO     | uploader.douyin_uploader.main:upload:136 - Loading cookies from: C:\Users\ADMINI~1\AppData\Local\Temp\tmppy52jw4s.json
+2025-12-25 10:44:03.070 | INFO     | uploader.douyin_uploader.main:upload:164 - [+]正在上传-------测试视频.mp4
+2025-12-25 10:44:03.070 | INFO     | uploader.douyin_uploader.main:upload:165 - [-] 正在打开主页...
+2025-12-25 10:44:03.945 | INFO     | uploader.douyin_uploader.main:upload:172 - [-] 等待页面验证和加载...
+2025-12-25 10:50:42.098 | INFO     | services.task_executor:execute_video_upload:211 - Downloading video from URL: http://localhost:3001/uploads/videos/20251225_105027_3_1764758371_AI.mp4
+2025-12-25 10:50:42.105 | INFO     | services.task_executor:execute_video_upload:224 - Video downloaded to: C:\Users\ADMINI~1\AppData\Local\Temp\tmpcxv0pyad.mp4
+2025-12-25 10:50:42.105 | INFO     | services.task_executor:execute_video_upload:240 - Starting upload: title=测试视频, video_path=C:\Users\ADMINI~1\AppData\Local\Temp\tmpcxv0pyad.mp4, tags=[]
+2025-12-25 10:50:42.105 | INFO     | uploader.douyin_uploader.main:__init__:73 - DouYinVideo initialized - title: '测试视频', tags: []
+2025-12-25 10:50:42.726 | INFO     | uploader.douyin_uploader.main:upload:136 - Loading cookies from: C:\Users\ADMINI~1\AppData\Local\Temp\tmpq6hz36pq.json
+2025-12-25 10:50:43.206 | INFO     | uploader.douyin_uploader.main:upload:164 - [+]正在上传-------测试视频.mp4
+2025-12-25 10:50:43.208 | INFO     | uploader.douyin_uploader.main:upload:165 - [-] 正在打开主页...
+2025-12-25 10:50:44.040 | INFO     | uploader.douyin_uploader.main:upload:172 - [-] 等待页面验证和加载...
+2025-12-25 10:50:52.413 | ERROR    | uploader.douyin_uploader.main:upload:214 - [-] 确认检测到登录页面元素且无上传元素，cookies已失效
+2025-12-25 10:50:52.678 | ERROR    | services.task_executor:execute_video_upload:276 - Video task 10 failed: Cookies已失效，页面跳转到登录页面，请重新登录账号
+2025-12-25 10:54:02.366 | INFO     | services.task_executor:execute_video_upload:211 - Downloading video from URL: http://localhost:3001/uploads/videos/20251225_104349_3_1764758371_AI.mp4
+2025-12-25 10:54:02.375 | INFO     | services.task_executor:execute_video_upload:224 - Video downloaded to: C:\Users\ADMINI~1\AppData\Local\Temp\tmp1ey5q8pv.mp4
+2025-12-25 10:54:02.377 | INFO     | services.task_executor:execute_video_upload:240 - Starting upload: title=测试视频, video_path=C:\Users\ADMINI~1\AppData\Local\Temp\tmp1ey5q8pv.mp4, tags=[]
+2025-12-25 10:54:02.378 | INFO     | uploader.douyin_uploader.main:__init__:73 - DouYinVideo initialized - title: '测试视频', tags: []
+2025-12-25 10:54:04.015 | INFO     | uploader.douyin_uploader.main:upload:136 - Loading cookies from: C:\Users\ADMINI~1\AppData\Local\Temp\tmpxribcvuv.json
+2025-12-25 10:54:04.977 | INFO     | uploader.douyin_uploader.main:upload:164 - [+]正在上传-------测试视频.mp4
+2025-12-25 10:54:04.979 | INFO     | uploader.douyin_uploader.main:upload:165 - [-] 正在打开主页...
+2025-12-25 10:54:06.260 | INFO     | uploader.douyin_uploader.main:upload:172 - [-] 等待页面验证和加载...
+2025-12-25 10:54:16.037 | ERROR    | uploader.douyin_uploader.main:upload:214 - [-] 确认检测到登录页面元素且无上传元素，cookies已失效
+2025-12-25 10:54:16.617 | ERROR    | services.task_executor:execute_video_upload:276 - Video task 9 failed: Cookies已失效，页面跳转到登录页面，请重新登录账号
+2025-12-25 11:15:48.924 | INFO     | services.task_executor:execute_video_upload:211 - Downloading video from URL: http://localhost:3001/uploads/videos/20251225_111536_3_1764758371_AI.mp4
+2025-12-25 11:15:48.954 | INFO     | services.task_executor:execute_video_upload:224 - Video downloaded to: C:\Users\ADMINI~1\AppData\Local\Temp\tmpvds4b0fh.mp4
+2025-12-25 11:15:48.954 | INFO     | services.task_executor:execute_video_upload:240 - Starting upload: title=测试, video_path=C:\Users\ADMINI~1\AppData\Local\Temp\tmpvds4b0fh.mp4, tags=[]
+2025-12-25 11:15:48.954 | INFO     | uploader.douyin_uploader.main:__init__:73 - DouYinVideo initialized - title: '测试', tags: []
+2025-12-25 11:15:49.990 | INFO     | uploader.douyin_uploader.main:upload:136 - Loading cookies from: C:\Users\ADMINI~1\AppData\Local\Temp\tmpjqwgvufn.json
+2025-12-25 11:15:50.564 | INFO     | uploader.douyin_uploader.main:upload:164 - [+]正在上传-------测试.mp4
+2025-12-25 11:15:50.564 | INFO     | uploader.douyin_uploader.main:upload:165 - [-] 正在打开主页...
+2025-12-25 11:15:51.367 | INFO     | uploader.douyin_uploader.main:upload:172 - [-] 等待页面验证和加载...
+2025-12-25 11:16:00.696 | ERROR    | uploader.douyin_uploader.main:upload:214 - [-] 确认检测到登录页面元素且无上传元素，cookies已失效
+2025-12-25 11:16:01.063 | ERROR    | services.task_executor:execute_video_upload:276 - Video task 11 failed: Cookies已失效，页面跳转到登录页面，请重新登录账号
+2025-12-27 20:26:49.956 | INFO     | services.task_executor:execute_video_upload:211 - Downloading video from URL: http://localhost:3001/uploads/videos/20251227_202633_3_1764758371_AI.mp4
+2025-12-27 20:26:50.007 | INFO     | services.task_executor:execute_video_upload:224 - Video downloaded to: C:\Users\ADMINI~1\AppData\Local\Temp\tmpiiwkxczy.mp4
+2025-12-27 20:26:50.008 | INFO     | services.task_executor:execute_video_upload:240 - Starting upload: title=测试, video_path=C:\Users\ADMINI~1\AppData\Local\Temp\tmpiiwkxczy.mp4, tags=[]
+2025-12-27 20:26:50.011 | INFO     | uploader.douyin_uploader.main:__init__:73 - DouYinVideo initialized - title: '测试', tags: []
+2025-12-27 20:26:58.746 | INFO     | uploader.douyin_uploader.main:upload:136 - Loading cookies from: C:\Users\ADMINI~1\AppData\Local\Temp\tmpl7g67zt_.json
+2025-12-27 20:26:59.629 | INFO     | uploader.douyin_uploader.main:upload:164 - [+]正在上传-------测试.mp4
+2025-12-27 20:26:59.629 | INFO     | uploader.douyin_uploader.main:upload:165 - [-] 正在打开主页...
+2025-12-27 20:27:00.594 | INFO     | uploader.douyin_uploader.main:upload:172 - [-] 等待页面验证和加载...
+2025-12-27 20:27:10.135 | ERROR    | uploader.douyin_uploader.main:upload:214 - [-] 确认检测到登录页面元素且无上传元素，cookies已失效
+2025-12-27 20:27:10.628 | ERROR    | services.task_executor:execute_video_upload:276 - Video task 12 failed: Cookies已失效，页面跳转到登录页面，请重新登录账号
+2025-12-27 20:30:50.163 | INFO     | services.task_executor:execute_video_upload:211 - Downloading video from URL: http://localhost:3001/uploads/videos/20251227_203033_3_1764758371_AI.mp4
+2025-12-27 20:30:50.220 | INFO     | services.task_executor:execute_video_upload:224 - Video downloaded to: C:\Users\ADMINI~1\AppData\Local\Temp\tmpmon8kz45.mp4
+2025-12-27 20:30:50.235 | INFO     | services.task_executor:execute_video_upload:240 - Starting upload: title=测试, video_path=C:\Users\ADMINI~1\AppData\Local\Temp\tmpmon8kz45.mp4, tags=[]
+2025-12-27 20:30:50.267 | INFO     | uploader.douyin_uploader.main:__init__:73 - DouYinVideo initialized - title: '测试', tags: []
+2025-12-27 20:30:52.863 | INFO     | uploader.douyin_uploader.main:upload:136 - Loading cookies from: C:\Users\ADMINI~1\AppData\Local\Temp\tmprjb9qil_.json
+2025-12-27 20:30:53.767 | INFO     | uploader.douyin_uploader.main:upload:164 - [+]正在上传-------测试.mp4
+2025-12-27 20:30:53.767 | INFO     | uploader.douyin_uploader.main:upload:165 - [-] 正在打开主页...
+2025-12-27 20:30:54.629 | INFO     | uploader.douyin_uploader.main:upload:172 - [-] 等待页面验证和加载...
+2025-12-27 20:31:05.028 | ERROR    | uploader.douyin_uploader.main:upload:214 - [-] 确认检测到登录页面元素且无上传元素，cookies已失效
+2025-12-27 20:31:06.012 | ERROR    | services.task_executor:execute_video_upload:276 - Video task 13 failed: Cookies已失效，页面跳转到登录页面，请重新登录账号
+2025-12-27 21:21:27.248 | INFO     | services.task_executor:execute_video_upload:211 - Downloading video from URL: http://localhost:3001/uploads/videos/20251227_212103_3_1764758371_AI.mp4
+2025-12-27 21:21:27.280 | INFO     | services.task_executor:execute_video_upload:224 - Video downloaded to: C:\Users\ADMINI~1\AppData\Local\Temp\tmpsxogjisu.mp4
+2025-12-27 21:21:27.281 | INFO     | services.task_executor:execute_video_upload:240 - Starting upload: title=测试, video_path=C:\Users\ADMINI~1\AppData\Local\Temp\tmpsxogjisu.mp4, tags=[]
+2025-12-27 21:21:27.281 | INFO     | uploader.douyin_uploader.main:__init__:73 - DouYinVideo initialized - title: '测试', tags: []
+2025-12-27 21:21:28.811 | INFO     | uploader.douyin_uploader.main:upload:136 - Loading cookies from: C:\Users\ADMINI~1\AppData\Local\Temp\tmpeq9y6qke.json
+2025-12-27 21:21:30.264 | INFO     | uploader.douyin_uploader.main:upload:164 - [+]正在上传-------测试.mp4
+2025-12-27 21:21:30.280 | INFO     | uploader.douyin_uploader.main:upload:165 - [-] 正在打开主页...
+2025-12-27 21:21:31.836 | INFO     | uploader.douyin_uploader.main:upload:172 - [-] 等待页面验证和加载...
+2025-12-27 21:21:41.341 | ERROR    | uploader.douyin_uploader.main:upload:214 - [-] 确认检测到登录页面元素且无上传元素，cookies已失效
+2025-12-27 21:21:41.636 | ERROR    | services.task_executor:execute_video_upload:276 - Video task 14 failed: Cookies已失效，页面跳转到登录页面，请重新登录账号

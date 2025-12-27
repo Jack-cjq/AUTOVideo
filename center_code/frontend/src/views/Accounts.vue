@@ -135,12 +135,14 @@ const loadAccounts = async () => {
     }
     
     const response = await api.accounts.list(params)
-    if (response.success) {
-      accounts.value = response.data.accounts || []
-      pagination.value.total = response.data.total || 0
+    if (response.code === 200) {
+      accounts.value = response.data?.accounts || []
+      pagination.value.total = response.data?.total || 0
+    } else {
+      ElMessage.error(response.message || '加载账号列表失败')
     }
   } catch (error) {
-    ElMessage.error('加载账号列表失败')
+    ElMessage.error(error.message || '加载账号列表失败')
     console.error(error)
   } finally {
     loading.value = false
@@ -178,7 +180,22 @@ const handleEdit = (row) => {
 }
 
 const handleLogin = async (row) => {
-  // 登录功能待实现
+  try {
+    // 调用登录接口，获取登录助手页面URL
+    const response = await api.login.start({ account_id: row.id })
+    
+    if (response.code === 200 && response.data) {
+      // 打开登录助手页面
+      const loginUrl = response.data.login_url || `/login-helper?account_id=${row.id}`
+      window.open(loginUrl, '_blank', 'width=1000,height=800')
+      ElMessage.success('已打开登录助手页面，请在新窗口中完成登录')
+    } else {
+      ElMessage.error(response.message || '打开登录助手页面失败')
+    }
+  } catch (error) {
+    console.error('登录失败:', error)
+    ElMessage.error(error.message || '打开登录助手页面失败')
+  }
 }
 
 const handleDelete = async (row) => {
@@ -188,13 +205,15 @@ const handleDelete = async (row) => {
     })
     
     const response = await api.accounts.delete(row.id)
-    if (response.success) {
+    if (response.code === 200) {
       ElMessage.success('删除成功')
       loadAccounts()
+    } else {
+      ElMessage.error(response.message || '删除失败')
     }
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error('删除失败')
+      ElMessage.error(error.message || '删除失败')
       console.error(error)
     }
   }

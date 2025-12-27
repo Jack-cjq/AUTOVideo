@@ -12,7 +12,7 @@ from datetime import datetime
 class DouyinAgent:
     """抖音设备Agent"""
     
-    def __init__(self, api_base='http://localhost:5000/api', device_id=None):
+    def __init__(self, api_base='http://localhost:8080/api', device_id=None):
         self.api_base = api_base
         self.device_id = device_id or f'device_{uuid.uuid4().hex[:8]}'
         self.device_name = f'Agent-{self.device_id}'

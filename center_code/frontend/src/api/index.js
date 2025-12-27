@@ -42,7 +42,32 @@ apiClient.interceptors.response.use(
         code: 500
       })
     }
-    // 后端返回的错误
+    
+    // 处理 401 认证错误（统一处理未授权访问）
+    if (error.response.status === 401) {
+      // 动态导入 auth store 以避免循环依赖
+      import('../stores/auth').then(({ useAuthStore }) => {
+        const authStore = useAuthStore()
+        // 清除登录状态
+        authStore.isLoggedIn = false
+        authStore.username = ''
+        // 显示登录对话框
+        authStore.showLoginDialog = true
+      }).catch(() => {
+        // 如果导入失败，忽略（可能是未初始化）
+        console.warn('无法导入 auth store 处理 401 错误')
+      })
+      
+      // 返回统一的 401 错误格式
+      const errorData = error.response.data || {}
+      return Promise.reject({
+        code: 401,
+        message: errorData.message || '请先登录',
+        data: errorData.data || null
+      })
+    }
+    
+    // 后端返回的其他错误
     if (error.response.data) {
       return Promise.reject(error.response.data)
     }

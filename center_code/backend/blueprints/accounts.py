@@ -5,6 +5,7 @@ from flask import Blueprint, request
 from datetime import datetime
 import sys
 import os
+import json
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils import response_success, response_error, login_required
 from models import Account, Device, Message, VideoTask, ChatTask, ListenTask
@@ -263,7 +264,8 @@ def get_account(account_id):
                 'account_name': account.account_name,
                 'platform': account.platform,
                 'login_status': account.login_status,
-                'last_login_time': account.last_login_time.isoformat() if account.last_login_time else None
+                'last_login_time': account.last_login_time.isoformat() if account.last_login_time else None,
+                'cookies': account.cookies  # 返回 cookies，供 service_code 使用
             })
     except Exception as e:
         return response_error(str(e), 500)
@@ -465,14 +467,55 @@ def account_cookies(account_id):
                 data = request.json
                 cookies = data.get('cookies')
                 
-                if cookies is not None:
-                    account.cookies = cookies
-                    account.updated_at = datetime.now()
-                    db.commit()
+                if cookies is None:
+                    return response_error('cookies is required', 400)
+                
+                # 验证和解析 cookies
+                cookies_json = None
+                try:
+                    # 如果 cookies 是字符串，尝试解析为 JSON
+                    if isinstance(cookies, str):
+                        cookies_data = json.loads(cookies)
+                        # 验证后重新序列化为字符串（确保格式统一）
+                        cookies_json = json.dumps(cookies_data, ensure_ascii=False)
+                    elif isinstance(cookies, dict):
+                        # 如果已经是字典，直接序列化
+                        cookies_json = json.dumps(cookies, ensure_ascii=False)
+                    else:
+                        return response_error('cookies must be a JSON string or object', 400)
+                    
+                    # 验证 storage_state 格式（Playwright 格式）
+                    cookies_data = json.loads(cookies_json)
+                    if not isinstance(cookies_data, dict):
+                        return response_error('Cookies must be a dictionary (storage_state format)', 400)
+                    
+                    # 检查是否有 cookies 或 origins 字段（storage_state 的标准格式）
+                    has_cookies = 'cookies' in cookies_data and isinstance(cookies_data.get('cookies'), list)
+                    has_origins = 'origins' in cookies_data and isinstance(cookies_data.get('origins'), list)
+                    
+                    if not (has_cookies or has_origins):
+                        # 警告但不阻止，因为可能是不完整的 cookies
+                        pass
+                    
+                except json.JSONDecodeError as e:
+                    return response_error(f'Invalid cookies JSON format: {str(e)}', 400)
+                except Exception as e:
+                    return response_error(f'Error processing cookies: {str(e)}', 400)
+                
+                # 更新 cookies
+                account.cookies = cookies_json
+                # 自动更新登录状态为已登录
+                account.login_status = 'logged_in'
+                # 更新最后登录时间
+                account.last_login_time = datetime.now()
+                account.updated_at = datetime.now()
+                db.commit()
                 
                 return response_success({
                     'account_id': account.id,
-                    'cookies': account.cookies
+                    'cookies': account.cookies,
+                    'login_status': account.login_status,
+                    'last_login_time': account.last_login_time.isoformat() if account.last_login_time else None
                 }, 'Cookies updated successfully')
     except Exception as e:
         return response_error(str(e), 500)

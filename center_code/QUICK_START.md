@@ -9,7 +9,7 @@
 **检查后端端口：**
 ```powershell
 # Windows PowerShell
-netstat -ano | findstr "LISTENING" | findstr ":5000 :5001 :8080"
+netstat -ano | findstr "LISTENING" | findstr ":8080 :8081 :8082"
 ```
 
 **启动后端：**
@@ -23,7 +23,7 @@ python app.py
 ✓ 数据库连接成功
 ✓ 数据库表初始化成功
 正在启动服务器...
-访问地址: http://localhost:5000  (或自动切换的其他端口)
+访问地址: http://localhost:8080  (或自动切换的其他端口)
 ```
 
 **注意后端实际运行的端口！**
@@ -35,7 +35,7 @@ python app.py
 ```javascript
 proxy: {
   '/api': {
-    target: 'http://localhost:5001',  // 修改为后端实际端口
+    target: 'http://localhost:8080',  // 修改为后端实际端口
     changeOrigin: true,
     secure: false
   }
@@ -62,14 +62,15 @@ npm run dev
 
 ## 常见端口配置
 
-- **前端开发服务器**: 3000（如果被占用会自动切换到3001）
-- **后端服务器**: 5000（如果被占用会自动切换到5001-5009）
+- **前端开发服务器**: 3001（如果被占用会自动切换到3002）
+- **后端服务器**: 8080（如果被占用会自动切换到8081-8089）
+- **Service_Code服务器**: 8081
 
 ## 快速测试
 
 1. **测试后端API**：
    ```bash
-   curl http://localhost:5001/api/health
+   curl http://localhost:8080/api/health
    ```
    应该返回：`{"status":"healthy","database":"mysql",...}`
 

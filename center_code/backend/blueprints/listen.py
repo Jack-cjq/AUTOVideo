@@ -13,6 +13,87 @@ from db import get_db
 listen_bp = Blueprint('listen', __name__, url_prefix='/api/listen')
 
 
+@listen_bp.route('/start', methods=['POST'])
+@login_required
+def create_listen_task():
+    """
+    创建监听任务接口
+    
+    请求方法: POST
+    路径: /api/listen/start
+    认证: 需要登录
+    
+    请求体 (JSON):
+        {
+            "account_id": int,        # 必填，账号ID
+            "action": "string"        # 必填，操作类型（start/stop）
+        }
+    
+    返回数据:
+        成功 (201):
+        {
+            "code": 201,
+            "message": "Listen task created",
+            "data": {
+                "id": int,
+                "account_id": int,
+                "device_id": int,
+                "action": "string",
+                "status": "string",
+                "created_at": "string"
+            }
+        }
+        
+        失败 (400/404/500):
+        {
+            "code": 400/404/500,
+            "message": "错误信息",
+            "data": null
+        }
+    
+    说明:
+        - 创建的任务初始状态为 pending（待处理）
+        - 如果账号不存在，返回 404 错误
+        - 任务会由后台任务处理器自动执行
+    """
+    try:
+        data = request.json
+        account_id = data.get('account_id')
+        action = data.get('action', 'start')
+        
+        if not account_id:
+            return response_error('account_id is required', 400)
+        
+        if action not in ['start', 'stop']:
+            return response_error('action must be "start" or "stop"', 400)
+        
+        with get_db() as db:
+            account = db.query(Account).filter(Account.id == account_id).first()
+            if not account:
+                return response_error('Account not found', 404)
+            
+            task = ListenTask(
+                account_id=account_id,
+                device_id=account.device_id,
+                action=action,
+                status='pending'
+            )
+            db.add(task)
+            db.flush()
+            db.commit()
+            
+            return response_success({
+                'id': task.id,
+                'account_id': task.account_id,
+                'device_id': task.device_id,
+                'action': task.action,
+                'status': task.status,
+                'created_at': task.created_at.isoformat() if task.created_at else None
+            }, 'Listen task created', 201)
+    except Exception as e:
+        return response_error(str(e), 500)
+
+
 @listen_bp.route('/tasks', methods=['GET'])
 @login_required
 def get_listen_tasks():

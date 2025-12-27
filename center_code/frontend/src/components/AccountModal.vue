@@ -9,7 +9,7 @@
       <el-tab-pane label="账号列表" name="list">
         <el-table
           v-loading="loading"
-          :data="accounts"
+          :data="safeAccounts"
           style="width: 100%"
           stripe
         >
@@ -104,11 +104,31 @@ const loadAccounts = async () => {
   loading.value = true
   try {
     const res = await api.accounts.list()
-    if (res.code === 200) {
-      accounts.value = res.data || []
+    if (res && res.code === 200) {
+      // 处理不同的数据格式
+      let accountsData = []
+      if (Array.isArray(res.data)) {
+        accountsData = res.data
+      } else if (res.data && Array.isArray(res.data.accounts)) {
+        accountsData = res.data.accounts
+      } else if (res.data && typeof res.data === 'object') {
+        // 如果是对象，尝试转换为数组
+        accountsData = Object.values(res.data)
+      }
+      
+      // 确保 accounts 始终是数组
+      accounts.value = Array.isArray(accountsData) ? accountsData : []
+    } else {
+      accounts.value = []
     }
   } catch (error) {
     console.error('Load accounts error:', error)
+    // 确保 accounts 始终是数组
+    accounts.value = []
+    // 如果是401错误，不显示错误（已经由拦截器处理）
+    if (error.code !== 401) {
+      ElMessage.error(error.message || '加载账号列表失败')
+    }
   } finally {
     loading.value = false
   }

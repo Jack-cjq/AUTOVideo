@@ -157,7 +157,7 @@ npm run build
 
 在 `frontend/.env.development` 和 `frontend/.env.production` 中配置：
 
-- `VITE_API_BASE_URL`: API 基础地址（开发环境默认 `http://localhost:5000/api`）
+- `VITE_API_BASE_URL`: API 基础地址（开发环境默认 `http://localhost:8080/api`）
 
 ## 后端模块化设计
 
@@ -236,7 +236,7 @@ npm run build
 
 ```bash
 cd frontend
-npm run dev  # 开发服务器运行在 http://localhost:3000
+npm run dev  # 开发服务器运行在 http://localhost:3001
 ```
 
 ### 后端开发
@@ -245,7 +245,7 @@ npm run dev  # 开发服务器运行在 http://localhost:3000
 
 ```bash
 cd backend
-python app.py  # 默认运行在 http://localhost:5000
+python app.py  # 默认运行在 http://localhost:8080
 ```
 
 ### API 调用示例

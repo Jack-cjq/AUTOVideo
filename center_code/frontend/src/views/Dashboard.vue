@@ -88,7 +88,7 @@
         </div>
       </template>
       
-      <el-table :data="publishPlans" stripe style="width: 100%">
+      <el-table :data="safePublishPlans" stripe style="width: 100%">
         <el-table-column prop="id" label="发布计划ID" width="120" />
         <el-table-column label="计划名称" width="250">
           <template #default="{ row }">
@@ -130,6 +130,7 @@
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
+import { useAuthStore } from '../stores/auth'
 import { useRouter } from 'vue-router'
 import { getVideoStats } from '../api/dataCenter'
 import { getPublishPlans } from '../api/publishPlans'
@@ -173,6 +174,16 @@ const privateMessageCount = ref(0)
 const commentCount = ref(0)
 const publishPlans = ref([])
 
+// 确保表格数据始终是数组的计算属性
+const safePublishPlans = computed(() => {
+  const plans = publishPlans.value
+  if (!Array.isArray(plans)) {
+    console.warn('publishPlans is not an array, converting to array:', plans)
+    return []
+  }
+  return plans
+})
+
 // 加载视频统计数据
 const loadVideoStats = async () => {
   try {
@@ -199,7 +210,10 @@ const loadVideoStats = async () => {
       kpiList.value[7].value = data.shares || 0
     }
   } catch (error) {
-    console.error('加载视频统计数据失败:', error)
+    // 如果是401错误，不显示错误（已经由拦截器处理）
+    if (error.code !== 401) {
+      console.error('加载视频统计数据失败:', error)
+    }
   } finally {
     loading.value = false
   }
@@ -214,8 +228,25 @@ const loadPublishPlans = async () => {
       offset: 0
     })
     
-    if (response.success) {
-      publishPlans.value = response.data.plans.map(plan => ({
+    if (response && response.success && response.data) {
+      // 确保 plans 是数组
+      let plans = []
+      if (Array.isArray(response.data.plans)) {
+        plans = response.data.plans
+      } else if (Array.isArray(response.data)) {
+        plans = response.data
+      } else if (response.data.plans && typeof response.data.plans === 'object') {
+        // 如果是对象，尝试转换为数组
+        plans = Object.values(response.data.plans)
+      }
+      
+      // 确保 plans 是数组后再 map
+      if (!Array.isArray(plans)) {
+        console.warn('Plans is not an array after processing:', plans)
+        plans = []
+      }
+      
+      publishPlans.value = plans.map(plan => ({
         id: plan.id,
         name: plan.plan_name,
         thumbnail: '',
@@ -229,9 +260,17 @@ const loadPublishPlans = async () => {
         status: getStatusText(plan.status),
         publishTime: plan.publish_time ? new Date(plan.publish_time).toLocaleString('zh-CN') : ''
       }))
+    } else {
+      // 如果响应格式不对，设置为空数组
+      publishPlans.value = []
     }
   } catch (error) {
-    console.error('加载发布计划失败:', error)
+    // 如果是401错误，不显示错误（已经由拦截器处理）
+    if (error.code !== 401) {
+      console.error('加载发布计划失败:', error)
+    }
+    // 确保 publishPlans 始终是数组
+    publishPlans.value = []
   }
 }
 
@@ -286,10 +325,17 @@ watch(planPlatform, () => {
   loadPublishPlans()
 })
 
-onMounted(() => {
-  loadVideoStats()
-  loadPublishPlans()
-  loadMessageStats()
+onMounted(async () => {
+  // 先检查登录状态
+  const authStore = useAuthStore()
+  const isLoggedIn = await authStore.checkLogin()
+  
+  // 只有登录后才加载数据
+  if (isLoggedIn) {
+    loadVideoStats()
+    loadPublishPlans()
+    loadMessageStats()
+  }
 })
 </script>
 

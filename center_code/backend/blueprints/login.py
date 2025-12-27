@@ -6,6 +6,8 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils import response_success, response_error, login_required
+from models import Account
+from db import get_db
 
 login_bp = Blueprint('login', __name__, url_prefix='/api/login')
 
@@ -53,6 +55,12 @@ def start_login():
         
         if not account_id:
             return response_error('account_id is required', 400)
+        
+        # 验证账号是否存在
+        with get_db() as db:
+            account = db.query(Account).filter(Account.id == account_id).first()
+            if not account:
+                return response_error('Account not found', 404)
         
         # 返回登录助手页面URL
         login_url = f'/login-helper?account_id={account_id}'

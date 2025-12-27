@@ -80,6 +80,16 @@ router.beforeEach(async (to, from, next) => {
   
   // 如果路由需要认证，先检查登录状态
   if (to.meta.requiresAuth) {
+    // 如果正在检查登录状态，等待检查完成
+    if (authStore.isCheckingLogin) {
+      // 等待检查完成（轮询等待，最多等待 5 秒）
+      let waitCount = 0
+      while (authStore.isCheckingLogin && waitCount < 50) {
+        await new Promise(resolve => setTimeout(resolve, 100))
+        waitCount++
+      }
+    }
+    
     // 如果还没有检查过登录状态（不在检查中且未登录），先检查
     if (!authStore.isCheckingLogin && !authStore.isLoggedIn) {
       // 等待登录检查完成
@@ -88,6 +98,8 @@ router.beforeEach(async (to, from, next) => {
       // 检查完成后，如果仍未登录，显示登录对话框
       if (!isLoggedIn) {
         authStore.showLoginDialog = true
+        // 注意：这里仍然允许导航，让用户看到页面和登录对话框
+        // 如果希望阻止未登录用户访问，可以改为：next(false) 或 next('/login')
       }
     } else if (authStore.isLoggedIn) {
       // 已登录，确保不显示登录对话框
@@ -96,9 +108,18 @@ router.beforeEach(async (to, from, next) => {
       // 未登录且不在检查中，显示登录对话框
       authStore.showLoginDialog = true
     }
+  } else {
+    // 不需要认证的路由，确保不显示登录对话框
+    authStore.showLoginDialog = false
   }
   
   // 允许导航（即使未登录也允许，让用户看到登录对话框）
+  // 如果需要更严格的控制，可以在未登录时阻止导航：
+  // if (to.meta.requiresAuth && !authStore.isLoggedIn) {
+  //   next(false) // 阻止导航
+  // } else {
+  //   next()
+  // }
   next()
 })
 

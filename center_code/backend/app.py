@@ -35,20 +35,48 @@ from blueprints.data_center import data_center_bp
 from blueprints.video_editor import video_editor_bp
 from blueprints.publish import publish_bp
 
-app = Flask(__name__, static_folder='../frontend/dist', static_url_path='')
-app.secret_key = os.getenv('SECRET_KEY', 'your-secret-key-change-in-production')
+# 导入任务处理器
+from services.task_processor import get_task_processor
 
-# 配置 session
+app = Flask(__name__, static_folder='../frontend/dist', static_url_path='')
+
+# ==================== Session 安全配置 ====================
+# 警告：生产环境必须设置强随机 SECRET_KEY！
+# 生成方式：python -c "import secrets; print(secrets.token_hex(32))"
+secret_key = os.getenv('SECRET_KEY', 'your-secret-key-change-in-production')
+if secret_key == 'your-secret-key-change-in-production':
+    import warnings
+    warnings.warn(
+        '⚠️  警告：正在使用默认的 SECRET_KEY，这在生产环境中是不安全的！\n'
+        '请设置环境变量 SECRET_KEY 或修改配置文件。\n'
+        '生成方式：python -c "import secrets; print(secrets.token_hex(32))"',
+        UserWarning
+    )
+app.secret_key = secret_key
+
+# 配置 session 安全选项
 app.config['SESSION_COOKIE_NAME'] = 'session'
-app.config['SESSION_COOKIE_HTTPONLY'] = True
-app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'  # 允许跨站请求携带 cookie
+app.config['SESSION_COOKIE_HTTPONLY'] = True  # 防止 XSS 攻击，禁止 JavaScript 访问 cookie
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'  # 防止 CSRF 攻击，允许跨站请求携带 cookie
 app.config['PERMANENT_SESSION_LIFETIME'] = 86400  # 24小时（秒）
+
+# 生产环境建议启用以下配置（需要 HTTPS）：
+# app.config['SESSION_COOKIE_SECURE'] = True  # 仅在 HTTPS 连接时发送 cookie
+# 注意：开发环境（HTTP）不要启用 SESSION_COOKIE_SECURE，否则 cookie 无法工作
+
+# 检查是否为生产环境（通过环境变量判断）
+is_production = os.getenv('FLASK_ENV') == 'production' or os.getenv('ENVIRONMENT') == 'production'
+if is_production:
+    # 生产环境启用安全 cookie（需要 HTTPS）
+    app.config['SESSION_COOKIE_SECURE'] = True
+    # 生产环境建议使用更严格的 SameSite 策略
+    # app.config['SESSION_COOKIE_SAMESITE'] = 'Strict'  # 更严格，但可能影响跨站请求
 
 # 配置 CORS，允许携带凭证
 # 开发环境允许所有 localhost 和 127.0.0.1 的端口
 cors_origins = [
-    'http://localhost:3000', 'http://localhost:3001', 'http://localhost:5173',
-    'http://127.0.0.1:3000', 'http://127.0.0.1:3001', 'http://127.0.0.1:5173'
+    'http://localhost:3001', 'http://localhost:3002', 'http://localhost:5173',
+    'http://127.0.0.1:3001', 'http://127.0.0.1:3002', 'http://127.0.0.1:5173'
 ]
 # 如果环境变量设置了允许的源，则使用环境变量
 if os.getenv('CORS_ORIGINS'):
@@ -138,6 +166,25 @@ def login_helper():
     return send_from_directory('../frontend/dist', 'index.html')
 
 
+# 提供上传文件的静态路由
+@app.route('/uploads/<path:filename>')
+def uploaded_file(filename):
+    """提供上传的文件访问"""
+    upload_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'uploads')
+    file_path = os.path.join(upload_dir, filename)
+    
+    # 安全检查：确保文件在 uploads 目录内
+    upload_dir_abs = os.path.abspath(upload_dir)
+    file_path_abs = os.path.abspath(file_path)
+    if not file_path_abs.startswith(upload_dir_abs):
+        return {'error': 'Invalid file path'}, 403
+    
+    if os.path.exists(file_path):
+        return send_from_directory(upload_dir, filename)
+    else:
+        return {'error': 'File not found'}, 404
+
+
 @app.route('/api/health', methods=['GET'])
 def health_check():
     """健康检查"""
@@ -174,8 +221,8 @@ if __name__ == '__main__':
     # 初始化数据库
     init_db()
     
-    # 从环境变量或命令行参数获取端口，默认5000
-    port = int(os.getenv('PORT', 5000))
+    # 从环境变量或命令行参数获取端口，默认8080
+    port = int(os.getenv('PORT', 8080))
     if len(sys.argv) > 1:
         try:
             port = int(sys.argv[1])
@@ -186,14 +233,14 @@ if __name__ == '__main__':
     original_port = port
     if not is_port_available(port):
         print(f"⚠️  警告: 端口 {port} 已被占用，尝试其他端口...")
-        # 尝试 5001-5010
-        for alt_port in range(5001, 5010):
+        # 尝试 8081-8089
+        for alt_port in range(8081, 8090):
             if is_port_available(alt_port):
                 port = alt_port
                 print(f"✓ 使用端口 {port} 启动服务器")
                 break
         else:
-            print(f"❌ 错误: 无法找到可用端口（尝试了 {original_port}-5009）")
+            print(f"❌ 错误: 无法找到可用端口（尝试了 {original_port}-8089）")
             print("\n解决方案：")
             print(f"  1. 关闭占用端口 {original_port} 的程序")
             print(f"  2. 使用其他端口: python app.py <端口号>")
@@ -203,6 +250,21 @@ if __name__ == '__main__':
     print(f"\n正在启动服务器...")
     print(f"访问地址: http://localhost:{port}")
     print(f"数据库类型: MySQL")
+    
+    # 启动任务处理器（只在主进程中启动，避免调试模式重载时重复启动）
+    if not os.environ.get('WERKZEUG_RUN_MAIN'):
+        # 这是主进程，不是重载进程
+        try:
+            task_processor = get_task_processor()
+            task_processor.start()
+            print("✓ 任务处理器已启动")
+        except Exception as e:
+            print(f"⚠️  警告: 任务处理器启动失败: {e}")
+            print("任务将不会自动执行，需要手动触发")
+    else:
+        # 这是重载进程，不启动任务处理器（主进程的任务处理器会继续运行）
+        pass
+    
     print(f"按 Ctrl+C 停止服务器\n")
     
     try:
@@ -225,3 +287,10 @@ if __name__ == '__main__':
         else:
             print(f"\n❌ 启动服务器时出错: {e}")
         sys.exit(1)
+    finally:
+        # 停止任务处理器
+        try:
+            task_processor = get_task_processor()
+            task_processor.stop()
+        except:
+            pass

@@ -15,7 +15,7 @@
       <el-collapse-transition>
         <div v-show="showHistory" class="history-section">
           <h4>最近发布记录</h4>
-          <el-table :data="publishHistory" stripe style="width: 100%" v-loading="historyLoading">
+          <el-table :data="safePublishHistory" stripe style="width: 100%" v-loading="historyLoading">
             <el-table-column prop="video_title" label="视频标题" min-width="150" />
             <el-table-column prop="account_name" label="发布账号" width="120" />
             <el-table-column prop="platform" label="平台" width="100">
@@ -28,10 +28,30 @@
                 <el-tag :type="getStatusType(row.status)">{{ getStatusText(row.status) }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="created_at" label="发布时间" width="180" />
-            <el-table-column label="操作" width="100">
+            <el-table-column prop="created_at" label="发布时间" width="180">
+              <template #default="{ row }">
+                {{ row.created_at ? new Date(row.created_at).toLocaleString('zh-CN') : '-' }}
+              </template>
+            </el-table-column>
+            <el-table-column prop="progress" label="进度" width="120">
+              <template #default="{ row }">
+                <el-progress 
+                  :percentage="row.progress || 0" 
+                  :status="row.status === 'failed' ? 'exception' : (row.status === 'completed' ? 'success' : '')"
+                  :stroke-width="8"
+                />
+              </template>
+            </el-table-column>
+            <el-table-column prop="error_message" label="错误信息" min-width="200" show-overflow-tooltip>
+              <template #default="{ row }">
+                <span v-if="row.error_message" style="color: #f56c6c;">{{ row.error_message }}</span>
+                <span v-else>-</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="150">
               <template #default="{ row }">
                 <el-button link type="primary" size="small" @click="handleViewDetail(row)">详情</el-button>
+                <el-button link type="danger" size="small" @click="handleDeleteTask(row)" v-if="row.status === 'pending' || row.status === 'failed'">删除</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -165,9 +185,9 @@
                   :value="account.id"
                 >
                   <div style="display: flex; align-items: center; justify-content: space-between;">
-                    <span>{{ account.account_name }}</span>
-                    <el-tag size="small" :type="getAccountStatusType(account.status)">
-                      {{ getAccountStatusText(account.status) }}
+                    <span>{{ account.account_name }} ({{ getPlatformText(account.platform) }})</span>
+                    <el-tag size="small" type="success" v-if="account.login_status === 'logged_in'">
+                      已登录
                     </el-tag>
                   </div>
                 </el-option>
@@ -371,8 +391,8 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ref, onMounted, computed, watch } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Clock, VideoPlay, Promotion, UploadFilled } from '@element-plus/icons-vue'
 import api from '../api'
 import { getVideos } from '../api/videoLibrary'
@@ -402,8 +422,25 @@ const selectedPlatforms = ref([])
 const publishType = ref('immediate')
 const publishInterval = ref(30)
 const showHistory = ref(false)
+
+// 监听showHistory变化，自动加载数据
+watch(showHistory, (newVal) => {
+  if (newVal && publishHistory.value.length === 0) {
+    loadPublishHistory()
+  }
+})
 const historyLoading = ref(false)
 const publishHistory = ref([])
+
+// 确保表格数据始终是数组的计算属性
+const safePublishHistory = computed(() => {
+  const history = publishHistory.value
+  if (!Array.isArray(history)) {
+    console.warn('publishHistory is not an array, converting to array:', history)
+    return []
+  }
+  return history
+})
 const uploadDialogVisible = ref(false)
 
 const historyPagination = ref({
@@ -422,9 +459,9 @@ const uploadAction = computed(() => {
 })
 
 const uploadHeaders = computed(() => {
-  return {
-    'Content-Type': 'multipart/form-data'
-  }
+  // Element Plus 的 upload 组件会自动设置 Content-Type，不需要手动设置
+  // 如果需要添加认证token，可以在这里添加
+  return {}
 })
 
 const getPlatformText = (platform) => {
@@ -486,12 +523,46 @@ const isVideoUrl = (url) => {
 const loadAccounts = async () => {
   try {
     const response = await api.accounts.list({ limit: 1000 })
-    if (response.success) {
-      accounts.value = response.data.accounts || []
+    console.log('账号列表响应:', response)
+    
+    // 处理不同的响应格式
+    if (response && (response.code === 200 || response.success)) {
+      let accountsData = []
+      
+      if (response.data) {
+        // 标准格式：{ code: 200, data: { accounts: [...] } }
+        if (Array.isArray(response.data.accounts)) {
+          accountsData = response.data.accounts
+        } else if (Array.isArray(response.data)) {
+          accountsData = response.data
+        }
+      } else if (Array.isArray(response)) {
+        // 直接是数组
+        accountsData = response
+      }
+      
+      // 只显示已登录的账号（login_status === 'logged_in'）
+      accounts.value = accountsData.filter(account => {
+        // 检查登录状态
+        return account.login_status === 'logged_in'
+      })
       filteredAccounts.value = accounts.value
+      
+      console.log('加载的账号数量:', accounts.value.length)
+      console.log('账号列表:', accounts.value)
+    } else {
+      console.warn('账号列表响应格式不正确:', response)
+      accounts.value = []
+      filteredAccounts.value = []
     }
   } catch (error) {
     console.error('加载账号列表失败:', error)
+    accounts.value = []
+    filteredAccounts.value = []
+    // 如果是401错误，不显示错误（已经由拦截器处理）
+    if (error.code !== 401) {
+      ElMessage.error('加载账号列表失败: ' + (error.message || '未知错误'))
+    }
   }
 }
 
@@ -513,12 +584,27 @@ const loadPublishHistory = async () => {
       page: historyPagination.value.page,
       size: historyPagination.value.size
     })
-    if (response.success) {
-      publishHistory.value = response.data.list || []
-      historyPagination.value.total = response.data.total || 0
+    console.log('发布历史响应:', response)
+    
+    if (response && response.code === 200) {
+      const list = response.data?.list || []
+      publishHistory.value = Array.isArray(list) ? list : []
+      historyPagination.value.total = response.data?.total || 0
+      console.log('加载的发布历史数量:', publishHistory.value.length)
+      console.log('发布历史数据:', publishHistory.value)
+    } else {
+      console.error('加载发布历史失败:', response?.message || '未知错误')
+      publishHistory.value = []
+      historyPagination.value.total = 0
     }
   } catch (error) {
     console.error('加载发布历史失败:', error)
+    publishHistory.value = []
+    historyPagination.value.total = 0
+    // 如果是401错误，不显示错误（已经由拦截器处理）
+    if (error.code !== 401) {
+      ElMessage.error('加载发布历史失败: ' + (error.message || '未知错误'))
+    }
   } finally {
     historyLoading.value = false
   }
@@ -590,12 +676,16 @@ const beforeUpload = (file) => {
 }
 
 const handleUploadSuccess = (response) => {
-  if (response.success) {
-    form.value.video_url = response.data.url
+  // 处理不同的响应格式
+  if (response && (response.success || response.code === 200)) {
+    const data = response.data || response
+    // 构建完整的URL
+    const videoUrl = data.url || data
+    form.value.video_url = videoUrl.startsWith('http') ? videoUrl : `${window.location.origin}${videoUrl}`
     ElMessage.success('上传成功')
     uploadDialogVisible.value = false
   } else {
-    ElMessage.error(response.message || '上传失败')
+    ElMessage.error(response?.message || response?.error || '上传失败')
   }
 }
 
@@ -671,12 +761,15 @@ const handleSubmit = async () => {
     }
 
     const response = await api.post('/publish/submit', data)
-    if (response.success) {
-      ElMessage.success(`发布任务已创建，共 ${form.value.account_ids.length} 个账号`)
+    if (response.code === 200) {
+      const taskCount = response.data?.total_tasks || form.value.account_ids.length
+      ElMessage.success(`发布任务已创建，共 ${taskCount} 个任务（${form.value.account_ids.length} 个账号）`)
       handleReset()
-      if (showHistory.value) {
-        loadPublishHistory()
+      // 自动显示发布历史
+      if (!showHistory.value) {
+        showHistory.value = true
       }
+      loadPublishHistory()
     } else {
       ElMessage.error(response.message || '发布失败')
     }
@@ -685,6 +778,49 @@ const handleSubmit = async () => {
     console.error(error)
   } finally {
     submitting.value = false
+  }
+}
+
+const handleViewDetail = (row) => {
+  ElMessageBox.alert(
+    `<div style="text-align: left;">
+      <p><strong>任务ID:</strong> ${row.id}</p>
+      <p><strong>视频标题:</strong> ${row.video_title || '-'}</p>
+      <p><strong>账号:</strong> ${row.account_name || '-'}</p>
+      <p><strong>平台:</strong> ${getPlatformText(row.platform)}</p>
+      <p><strong>状态:</strong> ${getStatusText(row.status)}</p>
+      <p><strong>进度:</strong> ${row.progress || 0}%</p>
+      <p><strong>创建时间:</strong> ${row.created_at ? new Date(row.created_at).toLocaleString('zh-CN') : '-'}</p>
+      <p><strong>开始时间:</strong> ${row.started_at ? new Date(row.started_at).toLocaleString('zh-CN') : '-'}</p>
+      <p><strong>完成时间:</strong> ${row.completed_at ? new Date(row.completed_at).toLocaleString('zh-CN') : '-'}</p>
+      ${row.error_message ? `<p><strong>错误信息:</strong> <span style="color: #f56c6c;">${row.error_message}</span></p>` : ''}
+    </div>`,
+    '任务详情',
+    {
+      dangerouslyUseHTMLString: true,
+      confirmButtonText: '关闭'
+    }
+  )
+}
+
+const handleDeleteTask = async (row) => {
+  try {
+    await ElMessageBox.confirm('确定要删除该任务吗？', '提示', {
+      type: 'warning'
+    })
+    
+    const response = await api.video.deleteTask(row.id)
+    if (response.code === 200) {
+      ElMessage.success('删除成功')
+      loadPublishHistory()
+    } else {
+      ElMessage.error(response.message || '删除失败')
+    }
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error(error.message || '删除失败')
+      console.error(error)
+    }
   }
 }
 
@@ -708,11 +844,6 @@ const handleReset = () => {
   selectedPlatforms.value = []
   publishType.value = 'immediate'
   publishInterval.value = 30
-}
-
-const handleViewDetail = (row) => {
-  // TODO: 实现查看详情功能
-  ElMessage.info('查看详情功能待实现')
 }
 
 onMounted(() => {

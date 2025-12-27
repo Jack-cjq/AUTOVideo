@@ -111,14 +111,15 @@ def create_video_task():
 
 
 @video_bp.route('/tasks', methods=['GET'])
-@login_required
 def get_video_tasks():
     """
     获取视频任务列表接口
     
     请求方法: GET
     路径: /api/video/tasks
-    认证: 需要登录
+    认证: 
+        - 如果只查询account_id和status，不需要登录（设备端调用）
+        - 其他情况需要登录（管理端调用）
     
     查询参数:
         account_id (int, 可选): 账号ID，筛选指定账号的任务
@@ -152,8 +153,17 @@ def get_video_tasks():
         - 支持按账号和状态筛选
     """
     try:
+        from flask import session
         account_id = request.args.get('account_id', type=int)
         status = request.args.get('status')
+        
+        # 如果只提供了account_id和status参数，允许设备端调用（不需要登录）
+        # 否则需要登录认证（管理端调用）
+        if account_id is None and status is None:
+            # 管理端调用，需要登录
+            if not session.get('logged_in'):
+                return response_error('请先登录', 401)
+        # 设备端调用（提供了account_id和status），不需要登录
         
         with get_db() as db:
             query = db.query(VideoTask)
