@@ -19,6 +19,18 @@ def get_cli_action() -> List[str]:
 
 
 async def set_init_script(context):
+    """
+    设置反检测脚本到浏览器上下文
+    包括通用的 stealth.min.js 和针对抖音的增强脚本
+    """
+    # 1. 加载通用的反检测脚本
     stealth_js_path = Path(BASE_DIR / "utils/stealth.min.js")
-    await context.add_init_script(path=stealth_js_path)
+    if stealth_js_path.exists():
+        await context.add_init_script(path=stealth_js_path)
+    
+    # 2. 加载针对抖音的增强反检测脚本
+    douyin_stealth_js_path = Path(BASE_DIR / "utils/douyin_stealth.js")
+    if douyin_stealth_js_path.exists():
+        await context.add_init_script(path=douyin_stealth_js_path)
+    
     return context

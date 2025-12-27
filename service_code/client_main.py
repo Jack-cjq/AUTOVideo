@@ -14,20 +14,20 @@ from utils.log import douyin_logger
 # 从环境变量或配置文件读取中心服务器地址
 # 默认连接本机中心服务，可通过环境变量 CENTER_BASE_URL 覆盖
 # 例如：
-#   Windows PowerShell: $env:CENTER_BASE_URL="http://192.168.1.100:5000"
-#   Linux/Mac: export CENTER_BASE_URL="http://192.168.1.100:5000"
+#   Windows PowerShell: $env:CENTER_BASE_URL="http://192.168.1.100:8080"
+#   Linux/Mac: export CENTER_BASE_URL="http://192.168.1.100:8080"
 DEFAULT_CENTER_BASE_URL = os.getenv('CENTER_BASE_URL', None)
 
 def detect_center_server():
     """
     自动检测中心服务器地址
-    尝试常见的端口：5000, 5001, 5002
+    尝试常见的端口：8080, 8081, 8082
     """
     if DEFAULT_CENTER_BASE_URL:
         return DEFAULT_CENTER_BASE_URL
     
     # 尝试检测中心服务器
-    common_ports = [5000, 5001, 5002]
+    common_ports = [8080, 8081, 8082]
     for port in common_ports:
         url = f'http://127.0.0.1:{port}'
         try:
@@ -39,7 +39,7 @@ def detect_center_server():
             continue
     
     # 如果都检测不到，使用默认值
-    default_url = 'http://127.0.0.1:5001'
+    default_url = 'http://127.0.0.1:8080'
     douyin_logger.warning(f"Could not detect center server, using default: {default_url}")
     douyin_logger.warning("You can set CENTER_BASE_URL environment variable to specify the server address")
     return default_url

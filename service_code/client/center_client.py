@@ -21,7 +21,7 @@ class CenterClient:
         初始化客户端
         
         Args:
-            center_base_url: 中心服务器地址，例如 http://your-server.com:5000
+            center_base_url: 中心服务器地址，例如 http://your-server.com:8080
             device_id: 设备ID，如果不提供则自动生成
             device_name: 设备名称，如果不提供则使用主机名
         """
@@ -345,6 +345,7 @@ class CenterClient:
     def get_account_info(self, account_id: int) -> Optional[Dict]:
         """
         获取账号信息（包括cookies）
+        优先尝试从数据库直接读取，如果失败则回退到 API 调用
         
         Args:
             account_id: 账号ID
@@ -352,6 +353,19 @@ class CenterClient:
         Returns:
             Optional[Dict]: 账号信息，如果不存在则返回None
         """
+        # 优先尝试从数据库直接读取（避免 API 认证问题）
+        try:
+            from client.db_reader import get_account_from_db
+            account_info = get_account_from_db(account_id)
+            if account_info:
+                douyin_logger.info(f"Successfully retrieved account {account_id} from database")
+                return account_info
+            else:
+                douyin_logger.warning(f"Account {account_id} not found in database, trying API...")
+        except Exception as e:
+            douyin_logger.warning(f"Failed to read account {account_id} from database: {e}, trying API...")
+        
+        # 回退到 API 调用（如果数据库读取失败）
         try:
             response = requests.get(
                 f'{self.center_base_url}/api/accounts/{account_id}',
@@ -361,11 +375,14 @@ class CenterClient:
             if response.status_code == 200:
                 data = response.json()
                 if data.get('code') == 200:
+                    douyin_logger.info(f"Successfully retrieved account {account_id} from API")
                     return data.get('data')
+            elif response.status_code == 401:
+                douyin_logger.error(f"API authentication failed for account {account_id}, please check database connection")
             
             return None
         except Exception as e:
-            douyin_logger.error(f"Error getting account info: {e}")
+            douyin_logger.error(f"Error getting account info from API: {e}")
             return None
     
     def update_account_cookies(self, account_id: int, cookies: Dict):
@@ -446,9 +463,12 @@ class CenterClient:
                 douyin_logger.error("  1. Check if the center server is running")
                 douyin_logger.error("  2. Verify the server address is correct")
                 douyin_logger.error("  3. Set CENTER_BASE_URL environment variable if needed:")
-                douyin_logger.error("     Windows PowerShell: $env:CENTER_BASE_URL='http://127.0.0.1:5000'")
-                douyin_logger.error("     Linux/Mac: export CENTER_BASE_URL='http://127.0.0.1:5000'")
+                douyin_logger.error("     Windows PowerShell: $env:CENTER_BASE_URL='http://127.0.0.1:8080'")
+                douyin_logger.error("     Linux/Mac: export CENTER_BASE_URL='http://127.0.0.1:8080'")
                 return
+        
+        # 预加载并保存账号cookies到本地
+        self._preload_account_cookies()
         
         self.is_running = True
         
@@ -499,7 +519,97 @@ class CenterClient:
             self.task_poll_thread.start()
             douyin_logger.info("Task poll thread started (no handler)")
         
+        # 预加载并保存账号cookies到本地
+        self._preload_account_cookies()
+        
         douyin_logger.success(f"Center client started (device_id: {self.device_id})")
+    
+    def _preload_account_cookies(self):
+        """
+        预加载账号cookies并保存到本地持久化存储
+        """
+        try:
+            account_id = self.get_account_id()
+            if not account_id:
+                douyin_logger.warning("No account found for this device, skipping cookie preload")
+                return
+            
+            # 优先尝试从数据库直接读取（避免 API 认证问题）
+            account_info = None
+            try:
+                from client.db_reader import get_account_from_db
+                account_info = get_account_from_db(account_id)
+                if account_info:
+                    douyin_logger.info(f"Preloaded account {account_id} cookies from database")
+            except Exception as e:
+                douyin_logger.warning(f"Failed to preload from database: {e}, trying API...")
+            
+            # 如果数据库读取失败，尝试 API
+            if not account_info:
+                account_info = self.get_account_info(account_id)
+            
+            if not account_info:
+                douyin_logger.warning(f"Account {account_id} not found, skipping cookie preload")
+                return
+            
+            cookies_json = account_info.get('cookies')
+            if not cookies_json:
+                douyin_logger.warning(f"Account {account_id} has no cookies, skipping cookie preload")
+                return
+            
+            # 解析cookies
+            if isinstance(cookies_json, str):
+                cookies_data = json.loads(cookies_json)
+            else:
+                cookies_data = cookies_json
+            
+            # 保存到本地持久化目录
+            from pathlib import Path
+            from conf import BASE_DIR
+            
+            cookies_dir = Path(BASE_DIR) / "cookies" / "douyin_uploader"
+            cookies_dir.mkdir(parents=True, exist_ok=True)
+            
+            # 保存为 account_{account_id}.json
+            account_file = cookies_dir / f"account_{account_id}.json"
+            
+            # 修复storageState格式
+            if isinstance(cookies_data, dict):
+                # 确保origins是列表
+                if 'origins' in cookies_data and isinstance(cookies_data['origins'], list):
+                    for origin in cookies_data['origins']:
+                        if isinstance(origin, dict):
+                            # 修复localStorage格式
+                            if 'localStorage' in origin:
+                                if isinstance(origin['localStorage'], dict):
+                                    localStorage_list = []
+                                    for key, value in origin['localStorage'].items():
+                                        localStorage_list.append({"name": key, "value": str(value)})
+                                    origin['localStorage'] = localStorage_list
+                                elif not isinstance(origin['localStorage'], list):
+                                    origin['localStorage'] = []
+                
+                # 确保cookies是列表
+                if 'cookies' in cookies_data and not isinstance(cookies_data['cookies'], list):
+                    if isinstance(cookies_data['cookies'], dict):
+                        cookies_data['cookies'] = []
+                    elif cookies_data['cookies'] is None:
+                        cookies_data['cookies'] = []
+            
+            # 保存到文件
+            with open(account_file, 'w', encoding='utf-8') as f:
+                json.dump(cookies_data, f, ensure_ascii=False, indent=2)
+            
+            douyin_logger.success(f"Account {account_id} cookies preloaded and saved to: {account_file}")
+            
+            # 同时保存为默认的 account.json（兼容旧代码）
+            default_account_file = cookies_dir / "account.json"
+            with open(default_account_file, 'w', encoding='utf-8') as f:
+                json.dump(cookies_data, f, ensure_ascii=False, indent=2)
+            douyin_logger.info(f"Also saved as default account.json: {default_account_file}")
+            
+        except Exception as e:
+            douyin_logger.error(f"Error preloading account cookies: {e}", exc_info=True)
     
     def stop(self):
         """停止客户端"""

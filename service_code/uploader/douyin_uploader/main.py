@@ -116,7 +116,46 @@ class DouYinVideo(object):
         else:
             browser = await playwright.chromium.launch(headless=self.headless)
         # 创建一个浏览器上下文，使用指定的 cookie 文件
-        context = await browser.new_context(storage_state=f"{self.account_file}")
+        # 验证文件是否存在且格式正确
+        import json
+        import os
+        if not os.path.exists(self.account_file):
+            raise Exception(f"Cookies file not found: {self.account_file}")
+        
+        # 验证文件格式
+        try:
+            with open(self.account_file, 'r', encoding='utf-8') as f:
+                storage_state = json.load(f)
+                if not isinstance(storage_state, dict):
+                    raise Exception(f"Invalid cookies file format: {self.account_file}")
+                if 'cookies' not in storage_state and 'origins' not in storage_state:
+                    douyin_logger.warning(f"Cookies file may be invalid: {self.account_file}")
+        except json.JSONDecodeError as e:
+            raise Exception(f"Invalid JSON in cookies file {self.account_file}: {e}")
+        
+        douyin_logger.info(f"Loading cookies from: {self.account_file}")
+        context = await browser.new_context(
+            storage_state=self.account_file,
+            viewport={'width': 1920, 'height': 1080},
+            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            locale='zh-CN',
+            timezone_id='Asia/Shanghai',
+            # 增强浏览器指纹伪装
+            device_scale_factor=1,
+            has_touch=False,
+            is_mobile=False,
+            # 添加更多真实的浏览器特征
+            extra_http_headers={
+                'Accept-Language': 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                'Sec-Fetch-Site': 'none',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-User': '?1',
+                'Sec-Fetch-Dest': 'document',
+                'Upgrade-Insecure-Requests': '1'
+            }
+        )
         context = await set_init_script(context)
 
         # 创建一个新的页面
@@ -129,51 +168,71 @@ class DouYinVideo(object):
         page.set_default_navigation_timeout(30000)
         await page.goto("https://creator.douyin.com/creator-micro/content/upload", wait_until="domcontentloaded")
         
-        # 等待页面稳定，给足够时间让 cookies 验证完成
+        # 使用与 cookie_auth 完全相同的逻辑来验证 cookies
         douyin_logger.info('[-] 等待页面验证和加载...')
-        await self._human_pause(3)  # 先等待3秒，让页面完成初始验证
         
-        # 智能等待：等待页面要么跳转到目标URL，要么跳转到登录页面
-        max_wait_time = 15  # 最多等待15秒
-        check_interval = 0.5  # 每0.5秒检查一次
-        waited_time = 0
-        
-        while waited_time < max_wait_time:
+        # 等待 URL 稳定（与 cookie_auth 一致）
+        try:
+            await page.wait_for_url("https://creator.douyin.com/creator-micro/content/upload", timeout=10000)
+            douyin_logger.debug('[-] URL 已稳定')
+        except Exception as e:
+            douyin_logger.error(f'[-] URL 未能在10秒内稳定: {e}')
+            # 检查是否跳转到登录页面
             current_url = page.url
-            douyin_logger.debug(f'[-] 检查中... 当前URL: {current_url}, 已等待: {waited_time}秒')
-            
-            # 如果已经跳转到登录页面，立即报错
             if 'login' in current_url.lower() or 'passport' in current_url.lower():
-                douyin_logger.error(f'[-] 检测到页面跳转到登录页面: {current_url}')
                 raise Exception("Cookies已失效，页面跳转到登录页面，请重新登录账号")
-            
-            # 如果已经在目标URL，检查页面内容确认不是登录页面
-            if 'creator.douyin.com/creator-micro/content/upload' in current_url:
-                # 等待页面元素加载
-                try:
-                    await page.wait_for_load_state("domcontentloaded", timeout=3000)
-                except:
-                    pass
-                
-                # 检查是否有登录相关的文本（页面可能还在加载中，所以用try-except）
-                try:
-                    login_text_count = await page.get_by_text('手机号登录').count() + await page.get_by_text('扫码登录').count()
-                    if login_text_count > 0:
-                        douyin_logger.error('[-] 检测到登录页面元素，cookies已失效')
-                        raise Exception("Cookies已失效，页面跳转到登录页面，请重新登录账号")
-                except Exception as e:
-                    if "Cookies已失效" in str(e):
-                        raise
-                    # 如果元素不存在（说明不在登录页面），继续
-                    pass
-                
-                # 如果URL正确且没有登录元素，说明成功进入上传页面
-                douyin_logger.info(f'[-] 成功进入上传页面: {current_url}')
-                break
-            
-            # 等待一段时间后再次检查
-            await asyncio.sleep(check_interval)
-            waited_time += check_interval
+            else:
+                raise Exception(f"页面未能加载到目标URL，当前URL: {current_url}")
+        
+        # 额外等待页面完全加载（给抖音的反爬虫机制更多时间）
+        douyin_logger.debug('[-] 等待页面完全加载...')
+        try:
+            await page.wait_for_load_state("networkidle", timeout=10000)
+        except:
+            # 如果 networkidle 超时，至少等待 domcontentloaded
+            try:
+                await page.wait_for_load_state("domcontentloaded", timeout=5000)
+            except:
+                pass
+        
+        # 额外等待 3 秒，确保页面完全渲染（抖音页面可能需要更长时间）
+        await asyncio.sleep(3)
+        
+        # 检查登录元素（与 cookie_auth 完全相同的逻辑）
+        douyin_logger.debug('[-] 检查页面登录状态...')
+        login_text_count = await page.get_by_text('手机号登录').count() + await page.get_by_text('扫码登录').count()
+        
+        if login_text_count > 0:
+            # 如果检测到登录元素，再等待 3 秒并再次检查（避免误判）
+            douyin_logger.debug('[-] 检测到可能的登录元素，等待 3 秒再次确认...')
+            await asyncio.sleep(3)
+            login_text_count_confirm = await page.get_by_text('手机号登录').count() + await page.get_by_text('扫码登录').count()
+            if login_text_count_confirm > 0:
+                # 最后确认：检查是否有上传页面的关键元素
+                upload_elements = await page.locator('input[type="file"]').count()
+                if upload_elements == 0:
+                    douyin_logger.error('[-] 确认检测到登录页面元素且无上传元素，cookies已失效')
+                    raise Exception("Cookies已失效，页面跳转到登录页面，请重新登录账号")
+                else:
+                    douyin_logger.info('[-] 虽然检测到登录元素，但上传元素也存在，继续...')
+            else:
+                douyin_logger.info('[-] 登录元素已消失，页面加载完成')
+        else:
+            douyin_logger.info('[-] 未检测到登录元素，页面加载成功')
+        
+        # 最终确认：检查上传页面的关键元素
+        try:
+            # 等待上传元素出现（最多等待 5 秒）
+            await page.wait_for_selector('input[type="file"]', timeout=5000, state='attached')
+            douyin_logger.info(f'[-] 成功进入上传页面: {page.url}')
+        except:
+            # 如果上传元素不存在，检查是否真的在登录页面
+            login_text_count_final = await page.get_by_text('手机号登录').count() + await page.get_by_text('扫码登录').count()
+            if login_text_count_final > 0:
+                douyin_logger.error('[-] 最终确认：页面在登录页面，cookies已失效')
+                raise Exception("Cookies已失效，页面跳转到登录页面，请重新登录账号")
+            else:
+                douyin_logger.warning('[-] 上传元素未找到，但也不在登录页面，继续尝试...')
         
         # 最终检查：如果等待超时，再次确认当前状态
         final_url = page.url

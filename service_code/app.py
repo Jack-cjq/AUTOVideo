@@ -268,7 +268,7 @@ def update_cookie_to_center(account_id, cookies_json, task_id=None):
     """将更新后的cookie发送到center更新数据库，并更新任务状态"""
     try:
         # 使用统一的中心服务器地址配置
-        center_base_url = os.getenv('CENTER_BASE_URL', 'http://8.148.29.194:5000')
+        center_base_url = os.getenv('CENTER_BASE_URL', 'http://8.148.29.194:8080')
         
         # 如果cookies_json是字典，转换为JSON字符串
         if isinstance(cookies_json, dict):
@@ -300,7 +300,7 @@ def update_task_status_to_center(task_id, status, error_message=None):
     """更新center中的任务状态"""
     try:
         # 使用统一的中心服务器地址配置
-        center_base_url = os.getenv('CENTER_BASE_URL', 'http://8.148.29.194:5000')
+        center_base_url = os.getenv('CENTER_BASE_URL', 'http://8.148.29.194:8080')
         
         data = {
             'task_id': task_id,
@@ -801,5 +801,7 @@ if __name__ == '__main__':
     # 确保上传目录存在
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
     
-    app.run(debug=True, host='0.0.0.0', port=5001)
+    # 从环境变量获取端口，默认8081
+    port = int(os.getenv('PORT', 8081))
+    app.run(debug=True, host='0.0.0.0', port=port)
 

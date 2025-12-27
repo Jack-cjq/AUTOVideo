@@ -8,7 +8,7 @@ import json
 import asyncio
 import tempfile
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Optional
 from utils.log import douyin_logger
 from uploader.douyin_uploader.main import DouYinVideo
 from listener.douyin_listener.main import open_douyin_chat, _send_chat_message
@@ -52,8 +52,8 @@ async def handle_video_task(task: Dict, client):
         else:
             cookies_data = cookies_json
         
-        # 保存cookies到临时文件
-        account_file = save_cookies_to_temp(cookies_data)
+        # 保存cookies到临时文件（同时保存到持久化目录用于调试）
+        account_file = save_cookies_to_temp(cookies_data, account_id)
         
         # 下载视频文件
         video_path = download_video(video_url)
@@ -139,8 +139,8 @@ async def handle_chat_task(task: Dict, client):
         else:
             cookies_data = cookies_json
         
-        # 保存cookies到临时文件
-        account_file = save_cookies_to_temp(cookies_data)
+        # 保存cookies到临时文件（同时保存到持久化目录用于调试）
+        account_file = save_cookies_to_temp(cookies_data, account_id)
         
         # 执行发送消息
         success = await execute_send_message(account_file, target_user, message)
@@ -211,8 +211,8 @@ async def handle_listen_task(task: Dict, client):
             else:
                 cookies_data = cookies_json
             
-            # 保存cookies到临时文件
-            account_file = save_cookies_to_temp(cookies_data)
+            # 保存cookies到临时文件（同时保存到持久化目录用于调试）
+            account_file = save_cookies_to_temp(cookies_data, account_id)
             
             # 创建停止事件
             import threading
@@ -507,7 +507,7 @@ def save_message_to_center(account_id: int, user_name: str, text: str, is_me: bo
     try:
         import requests
         # 默认连接本机中心服务，如需连接远程中心，可设置环境变量 CENTER_BASE_URL
-        center_base_url = os.getenv('CENTER_BASE_URL', 'http://127.0.0.1:5001')
+        center_base_url = os.getenv('CENTER_BASE_URL', 'http://127.0.0.1:8080')
         
         # 通过HTTP API保存消息
         response = requests.post(
@@ -542,8 +542,17 @@ def save_message_to_center(account_id: int, user_name: str, text: str, is_me: bo
         douyin_logger.error(f"Failed to save message to center: {e}")
         return False
 
-def save_cookies_to_temp(cookies_data: Dict) -> str:
-    """保存cookies到临时文件，并修复格式问题"""
+def save_cookies_to_temp(cookies_data: Dict, account_id: Optional[int] = None) -> str:
+    """
+    保存cookies到临时文件，并修复格式问题
+    
+    Args:
+        cookies_data: cookies 数据字典
+        account_id: 账号ID，如果提供则保存到持久化目录，否则保存到临时文件
+        
+    Returns:
+        str: 保存的文件路径
+    """
     # 修复storageState格式问题
     if isinstance(cookies_data, dict):
         # 确保origins是列表
@@ -571,10 +580,30 @@ def save_cookies_to_temp(cookies_data: Dict) -> str:
                 cookies_data['cookies'] = []
     
     cookies_json = json.dumps(cookies_data, ensure_ascii=False)
-    temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False, encoding='utf-8')
-    temp_file.write(cookies_json)
-    temp_file.close()
-    return temp_file.name
+    
+    # 如果提供了 account_id，保存到持久化目录（用于调试和检查）
+    if account_id:
+        from pathlib import Path
+        from conf import BASE_DIR
+        cookies_dir = Path(BASE_DIR) / "cookies" / "douyin_uploader"
+        cookies_dir.mkdir(parents=True, exist_ok=True)
+        account_file = cookies_dir / f"account_{account_id}.json"
+        # 确保保存为格式化的 JSON（便于调试）
+        import json as json_module
+        with open(account_file, 'w', encoding='utf-8') as f:
+            json_module.dump(cookies_data, f, ensure_ascii=False, indent=2)
+        douyin_logger.info(f"Cookies saved to persistent file: {account_file}")
+        # 验证文件是否保存成功
+        if not account_file.exists() or account_file.stat().st_size == 0:
+            douyin_logger.error(f"Failed to save cookies to {account_file}")
+            raise Exception(f"Failed to save cookies file: {account_file}")
+        return str(account_file)
+    else:
+        # 保存到临时文件
+        temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False, encoding='utf-8')
+        temp_file.write(cookies_json)
+        temp_file.close()
+        return temp_file.name
 
 def download_video(video_url: str) -> str:
     """

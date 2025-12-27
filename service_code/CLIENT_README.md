@@ -40,16 +40,16 @@
 
 ```bash
 # Windows PowerShell
-$env:CENTER_BASE_URL="http://your-server.com:5000"
+$env:CENTER_BASE_URL="http://your-server.com:8080"
 
 # Linux/Mac
-export CENTER_BASE_URL="http://your-server.com:5000"
+export CENTER_BASE_URL="http://your-server.com:8080"
 ```
 
 或者在代码中直接修改 `client_main.py`：
 
 ```python
-CENTER_BASE_URL = os.getenv('CENTER_BASE_URL', 'http://your-server.com:5000')
+CENTER_BASE_URL = os.getenv('CENTER_BASE_URL', 'http://your-server.com:8080')
 ```
 
 ### 2. 启动客户端
@@ -119,7 +119,7 @@ POST /api/chat/send
 ## 注意事项
 
 1. **网络连接**：客户端需要能够访问中心服务器的HTTP API
-2. **防火墙**：确保客户端可以访问中心服务器的端口（默认5000）
+2. **防火墙**：确保客户端可以访问中心服务器的端口（默认8080）
 3. **设备ID**：每个客户端有唯一的设备ID，保存在 `.device_id` 文件中
 4. **任务分配**：任务通过 `device_id` 分配给特定设备
 5. **并发处理**：客户端会顺序处理任务，避免并发冲突
