@@ -85,6 +85,83 @@ def upload_video():
         return response_error(f'Upload failed: {str(e)}', 500)
 
 
+@publish_bp.route('/upload-thumbnail', methods=['POST'])
+@login_required
+def upload_thumbnail():
+    """
+    上传封面图片接口
+    
+    请求方法: POST
+    路径: /api/publish/upload-thumbnail
+    认证: 需要登录
+    
+    请求体 (multipart/form-data):
+        file: 图片文件
+    
+    返回数据:
+        成功 (200):
+        {
+            "code": 200,
+            "message": "Upload successful",
+            "data": {
+                "url": "string",
+                "filename": "string"
+            }
+        }
+    """
+    try:
+        # 检查是否有文件
+        if 'file' not in request.files:
+            return response_error('No file provided', 400)
+        
+        file = request.files['file']
+        
+        # 检查文件名
+        if file.filename == '':
+            return response_error('No file selected', 400)
+        
+        # 检查文件类型
+        allowed_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'}
+        filename = secure_filename(file.filename)
+        file_ext = os.path.splitext(filename)[1].lower()
+        
+        if file_ext not in allowed_extensions:
+            return response_error(f'File type not allowed. Allowed types: {", ".join(allowed_extensions)}', 400)
+        
+        # 检查文件大小（限制为5MB）
+        file.seek(0, os.SEEK_END)
+        file_size = file.tell()
+        file.seek(0)
+        if file_size > 5 * 1024 * 1024:  # 5MB
+            return response_error('File size exceeds 5MB limit', 400)
+        
+        # 创建上传目录
+        upload_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'uploads', 'thumbnails')
+        os.makedirs(upload_dir, exist_ok=True)
+        
+        # 生成唯一文件名
+        from datetime import datetime
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        unique_filename = f"{timestamp}_{filename}"
+        filepath = os.path.join(upload_dir, unique_filename)
+        
+        # 保存文件
+        file.save(filepath)
+        
+        # 返回文件URL（相对于静态文件目录）
+        file_url = f'/uploads/thumbnails/{unique_filename}'
+        
+        return response_success({
+            'url': file_url,
+            'filename': unique_filename
+        }, 'Upload successful')
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return response_error(f'Upload failed: {str(e)}', 500)
+
+
 @publish_bp.route('/submit', methods=['POST'])
 @login_required
 def submit_publish():

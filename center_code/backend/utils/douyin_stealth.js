@@ -5,12 +5,68 @@
     'use strict';
     
     // 1. 隐藏 navigator.webdriver
-    Object.defineProperty(navigator, 'webdriver', {
-        get: () => undefined
-    });
-    
-    // 2. 删除 webdriver 相关属性
-    delete navigator.__proto__.webdriver;
+    // 使用多种方法尝试隐藏 webdriver 属性，防止被检测
+    (function() {
+        // 方法1: 尝试删除属性（如果可删除）
+        try {
+            delete navigator.webdriver;
+        } catch (e) {
+            // 忽略删除失败
+        }
+        
+        // 方法2: 尝试在原型链上删除
+        try {
+            delete navigator.__proto__.webdriver;
+        } catch (e) {
+            // 忽略删除失败
+        }
+        
+        // 方法3: 尝试重新定义（如果属性不存在或可配置）
+        try {
+            const descriptor = Object.getOwnPropertyDescriptor(navigator, 'webdriver');
+            if (!descriptor || descriptor.configurable) {
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined,
+                    set: () => {}, // 允许设置，但忽略值
+                    configurable: true,
+                    enumerable: false
+                });
+            } else {
+                // 如果属性不可配置，尝试在原型链上定义
+                try {
+                    Object.defineProperty(navigator.__proto__, 'webdriver', {
+                        get: () => undefined,
+                        configurable: true,
+                        enumerable: false
+                    });
+                } catch (e2) {
+                    // 如果都失败，至少尝试直接赋值（可能无效，但不报错）
+                    try {
+                        navigator.webdriver = undefined;
+                    } catch (e3) {
+                        // 如果所有方法都失败，记录警告但继续
+                        console.warn('[Stealth] Failed to hide webdriver property, but continuing...');
+                    }
+                }
+            }
+        } catch (e) {
+            // 如果定义失败，尝试在原型链上定义
+            try {
+                Object.defineProperty(navigator.__proto__, 'webdriver', {
+                    get: () => undefined,
+                    configurable: true,
+                    enumerable: false
+                });
+            } catch (e2) {
+                // 如果都失败，至少尝试直接赋值
+                try {
+                    navigator.webdriver = undefined;
+                } catch (e3) {
+                    // 忽略所有错误，继续执行
+                }
+            }
+        }
+    })();
     
     // 3. 伪装 Chrome 对象
     if (!window.chrome) {

@@ -85,36 +85,61 @@
               <span>选择视频</span>
             </template>
             <el-radio-group v-model="videoSource" @change="handleVideoSourceChange">
-              <el-radio label="url">输入视频URL</el-radio>
+              <el-radio label="upload">本地上传</el-radio>
               <el-radio label="library">从视频库选择</el-radio>
             </el-radio-group>
 
-            <div v-if="videoSource === 'url'" style="margin-top: 20px;">
-              <el-form-item label="视频URL" required>
-                <el-input
-                  v-model="form.video_url"
-                  placeholder="请输入视频URL或上传视频文件"
-                  clearable
+            <div v-if="videoSource === 'upload'" style="margin-top: 20px;">
+              <el-form-item label="上传视频" required>
+                <el-upload
+                  class="video-uploader"
+                  :action="uploadAction"
+                  :headers="uploadHeaders"
+                  :on-success="handleUploadSuccess"
+                  :on-error="handleUploadError"
+                  :before-upload="beforeUpload"
+                  :show-file-list="false"
+                  accept="video/*"
                 >
-                  <template #append>
-                    <el-button @click="handleUploadVideo">上传</el-button>
+                  <el-button type="primary">
+                    <el-icon><UploadFilled /></el-icon>
+                    选择视频文件
+                  </el-button>
+                  <template #tip>
+                    <div class="el-upload__tip">支持 mp4、mov、avi 格式，文件大小不超过 500MB</div>
                   </template>
-                </el-input>
+                </el-upload>
+                <div v-if="form.video_url" style="margin-top: 10px;">
+                  <el-text type="success" size="small">
+                    <el-icon><Check /></el-icon>
+                    已上传: {{ getVideoFileName(form.video_url) }}
+                  </el-text>
+                  <el-button 
+                    link 
+                    type="danger" 
+                    size="small" 
+                    @click="clearVideo"
+                    style="margin-left: 10px;"
+                  >
+                    清除
+                  </el-button>
+                </div>
               </el-form-item>
               <el-form-item label="视频预览">
                 <div class="video-preview">
                   <video
-                    v-if="form.video_url && isVideoUrl(form.video_url)"
-                    :src="form.video_url"
+                    v-if="form.video_url"
+                    :key="form.video_url"
+                    :src="getVideoPreviewUrl(form.video_url)"
                     controls
+                    preload="metadata"
                     style="max-width: 100%; max-height: 300px;"
-                  />
-                  <el-image
-                    v-else-if="form.thumbnail_url"
-                    :src="form.thumbnail_url"
-                    fit="cover"
-                    style="max-width: 300px; max-height: 300px; border-radius: 4px;"
-                  />
+                    @error="handleVideoError"
+                    @loadedmetadata="handleVideoLoaded"
+                    @loadstart="handleVideoLoadStart"
+                  >
+                    您的浏览器不支持视频播放
+                  </video>
                   <div v-else class="preview-placeholder">
                     <el-icon size="48"><VideoPlay /></el-icon>
                     <p>视频预览</p>
@@ -163,12 +188,35 @@
             </template>
             <el-form-item label="平台筛选">
               <el-checkbox-group v-model="selectedPlatforms" @change="filterAccounts">
-                <el-checkbox label="douyin">抖音</el-checkbox>
-                <el-checkbox label="kuaishou">快手</el-checkbox>
-                <el-checkbox label="xiaohongshu">小红书</el-checkbox>
+                <el-checkbox label="douyin">
+                  抖音
+                  <el-text type="info" size="small" style="margin-left: 5px;">
+                    ({{ getPlatformAccountCount('douyin') }})
+                  </el-text>
+                </el-checkbox>
+                <el-checkbox label="kuaishou">
+                  快手
+                  <el-text type="info" size="small" style="margin-left: 5px;">
+                    ({{ getPlatformAccountCount('kuaishou') }})
+                  </el-text>
+                </el-checkbox>
+                <el-checkbox label="xiaohongshu">
+                  小红书
+                  <el-text type="info" size="small" style="margin-left: 5px;">
+                    ({{ getPlatformAccountCount('xiaohongshu') }})
+                  </el-text>
+                </el-checkbox>
               </el-checkbox-group>
             </el-form-item>
             <el-form-item label="选择账号" required>
+              <div style="margin-bottom: 10px;">
+                <el-text type="info" size="small">
+                  已选择 {{ form.account_ids.length }} 个账号
+                  <span v-if="filteredAccounts.length > 0">
+                    / 当前筛选显示 {{ filteredAccounts.length }} 个账号
+                  </span>
+                </el-text>
+              </div>
               <el-select
                 v-model="form.account_ids"
                 placeholder="请选择发布账号（可多选）"
@@ -177,25 +225,66 @@
                 style="width: 100%;"
                 collapse-tags
                 collapse-tags-tooltip
+                :max-collapse-tags="3"
+                @change="handleAccountChange"
               >
                 <el-option
                   v-for="account in filteredAccounts"
                   :key="account.id"
                   :label="`${account.account_name} (${getPlatformText(account.platform)})`"
                   :value="account.id"
+                  :disabled="account.login_status !== 'logged_in'"
                 >
                   <div style="display: flex; align-items: center; justify-content: space-between;">
-                    <span>{{ account.account_name }} ({{ getPlatformText(account.platform) }})</span>
-                    <el-tag size="small" type="success" v-if="account.login_status === 'logged_in'">
-                      已登录
-                    </el-tag>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <span>{{ account.account_name }}</span>
+                      <el-tag size="small" :type="getPlatformTagType(account.platform)">
+                        {{ getPlatformText(account.platform) }}
+                      </el-tag>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <el-tag 
+                        size="small" 
+                        :type="account.login_status === 'logged_in' ? 'success' : 'warning'"
+                        v-if="account.login_status"
+                      >
+                        {{ account.login_status === 'logged_in' ? '已登录' : '未登录' }}
+                      </el-tag>
+                    </div>
                   </div>
                 </el-option>
               </el-select>
+              <div v-if="filteredAccounts.length === 0" style="margin-top: 10px;">
+                <el-text type="warning" size="small">
+                  <el-icon style="margin-right: 5px;"><Warning /></el-icon>
+                  当前筛选条件下没有可用的账号
+                </el-text>
+              </div>
             </el-form-item>
             <el-form-item>
-              <el-button type="primary" link @click="selectAllAccounts">全选当前平台</el-button>
-              <el-button link @click="clearAllAccounts">清空选择</el-button>
+              <el-button 
+                type="primary" 
+                link 
+                @click="selectAllAccounts"
+                :disabled="filteredAccounts.length === 0"
+              >
+                全选当前平台 ({{ filteredAccounts.length }})
+              </el-button>
+              <el-button 
+                link 
+                @click="clearAllAccounts"
+                :disabled="form.account_ids.length === 0"
+              >
+                清空选择
+              </el-button>
+              <el-button 
+                link 
+                type="info"
+                @click="clearPlatformFilter"
+                v-if="selectedPlatforms.length > 0"
+              >
+                清除平台筛选
+              </el-button>
             </el-form-item>
             <div v-if="form.account_ids && form.account_ids.length > 0" class="selected-accounts">
               <el-tag
@@ -243,8 +332,12 @@
                 filterable
                 allow-create
                 default-first-option
-                placeholder="选择或输入标签"
+                placeholder="选择或输入标签（最多10个）"
                 style="width: 100%;"
+                :max-collapse-tags="3"
+                collapse-tags
+                collapse-tags-tooltip
+                @change="handleTagsChange"
               >
                 <el-option
                   v-for="tag in popularTags"
@@ -253,7 +346,7 @@
                   :value="tag"
                 />
               </el-select>
-              <div v-if="form.video_tags_array && form.video_tags_array.length > 0" class="tags-display">
+              <div v-if="form.video_tags_array && form.video_tags_array.length > 0" class="tags-display" style="margin-top: 10px;">
                 <el-tag
                   v-for="(tag, index) in form.video_tags_array"
                   :key="index"
@@ -264,24 +357,54 @@
                   {{ tag }}
                 </el-tag>
               </div>
+              <div v-if="form.video_tags_array && form.video_tags_array.length >= 10" style="margin-top: 5px;">
+                <el-text type="warning" size="small">最多只能添加10个标签</el-text>
+              </div>
             </el-form-item>
             <el-form-item label="封面图片">
-              <el-input
-                v-model="form.thumbnail_url"
-                placeholder="请输入封面图片URL"
-                clearable
-              >
-                <template #append>
-                  <el-button @click="handleUploadThumbnail">上传</el-button>
-                </template>
-              </el-input>
-              <div v-if="form.thumbnail_url" class="thumbnail-preview" style="margin-top: 10px;">
-                <el-image
-                  :src="form.thumbnail_url"
-                  fit="cover"
-                  style="width: 200px; height: 120px; border-radius: 4px;"
-                  :preview-src-list="[form.thumbnail_url]"
+              <div style="display: flex; flex-direction: column; gap: 10px;">
+                <el-upload
+                  class="thumbnail-uploader"
+                  :action="thumbnailUploadAction"
+                  :headers="uploadHeaders"
+                  :on-success="handleThumbnailUploadSuccess"
+                  :on-error="handleThumbnailUploadError"
+                  :before-upload="beforeThumbnailUpload"
+                  :show-file-list="false"
+                  accept="image/*"
+                >
+                  <el-button type="primary">
+                    <el-icon><UploadFilled /></el-icon>
+                    上传封面图片
+                  </el-button>
+                  <template #tip>
+                    <div class="el-upload__tip">支持 jpg、png、gif 格式，文件大小不超过 5MB</div>
+                  </template>
+                </el-upload>
+                <el-input
+                  v-model="form.thumbnail_url"
+                  placeholder="或输入封面图片URL"
+                  clearable
+                  style="margin-top: 10px;"
                 />
+                <div v-if="form.thumbnail_url" class="thumbnail-preview" style="margin-top: 10px;">
+                  <el-image
+                    :src="getThumbnailPreviewUrl(form.thumbnail_url)"
+                    fit="cover"
+                    style="width: 200px; height: 120px; border-radius: 4px; cursor: pointer;"
+                    :preview-src-list="[getThumbnailPreviewUrl(form.thumbnail_url)]"
+                    @error="handleThumbnailError"
+                  />
+                  <el-button 
+                    link 
+                    type="danger" 
+                    size="small" 
+                    @click="clearThumbnail"
+                    style="margin-left: 10px;"
+                  >
+                    清除
+                  </el-button>
+                </div>
               </div>
             </el-form-item>
           </el-card>
@@ -368,32 +491,13 @@
         </div>
       </el-form>
     </el-card>
-
-    <!-- 上传视频对话框 -->
-    <el-dialog v-model="uploadDialogVisible" title="上传视频" width="500px">
-      <el-upload
-        class="upload-demo"
-        drag
-        :action="uploadAction"
-        :headers="uploadHeaders"
-        :on-success="handleUploadSuccess"
-        :on-error="handleUploadError"
-        :before-upload="beforeUpload"
-      >
-        <el-icon class="el-icon--upload"><upload-filled /></el-icon>
-        <div class="el-upload__text">将视频文件拖到此处，或<em>点击上传</em></div>
-        <template #tip>
-          <div class="el-upload__tip">支持 mp4、mov、avi 格式，文件大小不超过 500MB</div>
-        </template>
-      </el-upload>
-    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Clock, VideoPlay, Promotion, UploadFilled } from '@element-plus/icons-vue'
+import { Clock, VideoPlay, Promotion, UploadFilled, Warning, Check } from '@element-plus/icons-vue'
 import api from '../api'
 import { getVideos } from '../api/videoLibrary'
 
@@ -417,7 +521,7 @@ const filteredAccounts = ref([])
 const videoLibrary = ref([])
 const submitting = ref(false)
 const currentStep = ref(0)
-const videoSource = ref('url')
+const videoSource = ref('upload')
 const selectedPlatforms = ref([])
 const publishType = ref('immediate')
 const publishInterval = ref(30)
@@ -441,7 +545,6 @@ const safePublishHistory = computed(() => {
   }
   return history
 })
-const uploadDialogVisible = ref(false)
 
 const historyPagination = ref({
   page: 1,
@@ -456,6 +559,10 @@ const popularTags = ref([
 
 const uploadAction = computed(() => {
   return `${import.meta.env.VITE_API_BASE_URL || '/api'}/publish/upload-video`
+})
+
+const thumbnailUploadAction = computed(() => {
+  return `${import.meta.env.VITE_API_BASE_URL || '/api'}/publish/upload-thumbnail`
 })
 
 const uploadHeaders = computed(() => {
@@ -546,7 +653,9 @@ const loadAccounts = async () => {
         // 检查登录状态
         return account.login_status === 'logged_in'
       })
-      filteredAccounts.value = accounts.value
+      
+      // 初始化筛选后的账号列表（根据当前平台筛选）
+      filterAccounts()
       
       console.log('加载的账号数量:', accounts.value.length)
       console.log('账号列表:', accounts.value)
@@ -610,35 +719,127 @@ const loadPublishHistory = async () => {
   }
 }
 
+// 获取平台账号数量
+const getPlatformAccountCount = (platform) => {
+  return accounts.value.filter(account => account.platform === platform).length
+}
+
+// 获取平台标签类型
+const getPlatformTagType = (platform) => {
+  const typeMap = {
+    'douyin': 'danger',
+    'kuaishou': 'warning',
+    'xiaohongshu': 'warning'
+  }
+  return typeMap[platform] || 'info'
+}
+
+// 筛选账号
 const filterAccounts = () => {
   if (selectedPlatforms.value.length === 0) {
-    filteredAccounts.value = accounts.value
-  } else {
-    filteredAccounts.value = accounts.value.filter(account =>
-      selectedPlatforms.value.includes(account.platform)
+    // 如果没有选择平台，显示所有已登录的账号
+    filteredAccounts.value = accounts.value.filter(account => 
+      account.login_status === 'logged_in'
     )
+  } else {
+    // 根据选择的平台筛选，只显示已登录的账号
+    filteredAccounts.value = accounts.value.filter(account =>
+      selectedPlatforms.value.includes(account.platform) &&
+      account.login_status === 'logged_in'
+    )
+  }
+  
+  // 如果当前已选择的账号不在筛选结果中，从选择列表中移除
+  const validAccountIds = filteredAccounts.value.map(a => a.id)
+  form.value.account_ids = form.value.account_ids.filter(id => 
+    validAccountIds.includes(id) || accounts.value.find(a => a.id === id)
+  )
+}
+
+// 全选当前平台账号
+const selectAllAccounts = () => {
+  // 只选择已登录的账号
+  const availableAccounts = filteredAccounts.value.filter(
+    account => account.login_status === 'logged_in'
+  )
+  
+  if (availableAccounts.length === 0) {
+    ElMessage.warning('当前筛选条件下没有可用的已登录账号')
+    return
+  }
+  
+  // 合并已选择的账号和新选择的账号（去重）
+  const newAccountIds = availableAccounts.map(a => a.id)
+  const existingIds = form.value.account_ids || []
+  form.value.account_ids = [...new Set([...existingIds, ...newAccountIds])]
+  
+  ElMessage.success(`已选择 ${newAccountIds.length} 个账号`)
+}
+
+// 清空选择
+const clearAllAccounts = () => {
+  if (form.value.account_ids.length === 0) {
+    return
+  }
+  
+  form.value.account_ids = []
+  ElMessage.info('已清空所有选择')
+}
+
+// 清除平台筛选
+const clearPlatformFilter = () => {
+  selectedPlatforms.value = []
+  filterAccounts()
+  ElMessage.info('已清除平台筛选')
+}
+
+// 账号选择变化处理
+const handleAccountChange = (selectedIds) => {
+  // 验证选择的账号是否都是已登录状态
+  const invalidAccounts = selectedIds.filter(id => {
+    const account = accounts.value.find(a => a.id === id)
+    return account && account.login_status !== 'logged_in'
+  })
+  
+  if (invalidAccounts.length > 0) {
+    ElMessage.warning('只能选择已登录的账号')
+    // 移除未登录的账号
+    form.value.account_ids = selectedIds.filter(id => !invalidAccounts.includes(id))
   }
 }
 
-const selectAllAccounts = () => {
-  form.value.account_ids = filteredAccounts.value.map(a => a.id)
-}
-
-const clearAllAccounts = () => {
-  form.value.account_ids = []
-}
-
+// 移除单个账号
 const removeAccount = (accountId) => {
-  form.value.account_ids = form.value.account_ids.filter(id => id !== accountId)
+  const index = form.value.account_ids.indexOf(accountId)
+  if (index > -1) {
+    form.value.account_ids.splice(index, 1)
+  }
 }
 
 const removeTag = (index) => {
   form.value.video_tags_array.splice(index, 1)
 }
 
+// 标签变化处理
+const handleTagsChange = (tags) => {
+  // 限制最多10个标签
+  if (tags && tags.length > 10) {
+    form.value.video_tags_array = tags.slice(0, 10)
+    ElMessage.warning('最多只能添加10个标签')
+  }
+  // 去除重复标签
+  if (tags && tags.length > 0) {
+    form.value.video_tags_array = [...new Set(tags)]
+  }
+}
+
 const handleVideoSourceChange = () => {
   if (videoSource.value === 'library') {
     loadVideoLibrary()
+  } else if (videoSource.value === 'upload') {
+    // 切换到本地上传时，清空视频URL
+    form.value.video_url = ''
+    form.value.video_id = null
   }
 }
 
@@ -651,13 +852,137 @@ const handleVideoSelect = (videoId) => {
   }
 }
 
-const handleUploadVideo = () => {
-  uploadDialogVisible.value = true
+// 获取视频文件名
+const getVideoFileName = (url) => {
+  if (!url) return ''
+  // 从路径中提取文件名
+  const parts = url.split('/')
+  return parts[parts.length - 1] || url
 }
 
-const handleUploadThumbnail = () => {
-  // TODO: 实现上传缩略图功能
-  ElMessage.info('上传缩略图功能待实现')
+// 获取视频预览URL
+const getVideoPreviewUrl = (url) => {
+  if (!url) return ''
+  // 如果是相对路径（如 /uploads/videos/filename.mp4），添加完整的基础URL
+  if (url.startsWith('/')) {
+    // 使用 window.location.origin 构建完整的URL
+    const fullUrl = window.location.origin + url
+    console.log('视频预览URL:', fullUrl)
+    return fullUrl
+  }
+  // 如果已经是完整URL，直接返回
+  console.log('视频预览URL:', url)
+  return url
+}
+
+// 视频加载错误处理
+const handleVideoError = (event) => {
+  const video = event.target
+  const src = video.src
+  console.error('视频加载失败:', {
+    src: src,
+    error: video.error,
+    networkState: video.networkState,
+    readyState: video.readyState
+  })
+  
+  // 显示更详细的错误信息
+  let errorMsg = '视频加载失败'
+  if (video.error) {
+    switch (video.error.code) {
+      case video.error.MEDIA_ERR_ABORTED:
+        errorMsg = '视频加载被中止'
+        break
+      case video.error.MEDIA_ERR_NETWORK:
+        errorMsg = '网络错误，无法加载视频'
+        break
+      case video.error.MEDIA_ERR_DECODE:
+        errorMsg = '视频解码失败'
+        break
+      case video.error.MEDIA_ERR_SRC_NOT_SUPPORTED:
+        errorMsg = '视频格式不支持或文件不存在'
+        break
+      default:
+        errorMsg = `视频加载失败 (错误代码: ${video.error.code})`
+    }
+  }
+  
+  ElMessage.error(errorMsg)
+  console.error('视频URL:', src)
+  console.error('请检查：1. 文件是否存在 2. 后端路由是否正确 3. 网络请求是否成功')
+}
+
+// 视频加载开始
+const handleVideoLoadStart = (event) => {
+  console.log('视频开始加载:', event.target.src)
+}
+
+// 视频加载成功
+const handleVideoLoaded = (event) => {
+  console.log('视频加载成功:', event.target.src)
+  console.log('视频时长:', event.target.duration, '秒')
+}
+
+// 清除视频
+const clearVideo = () => {
+  form.value.video_url = ''
+  form.value.video_id = null
+}
+
+// 封面图片上传前验证
+const beforeThumbnailUpload = (file) => {
+  const isImage = /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(file.name)
+  const isLt5M = file.size / 1024 / 1024 < 5
+
+  if (!isImage) {
+    ElMessage.error('只能上传图片文件!')
+    return false
+  }
+  if (!isLt5M) {
+    ElMessage.error('图片大小不能超过 5MB!')
+    return false
+  }
+  return true
+}
+
+// 封面图片上传成功
+const handleThumbnailUploadSuccess = (response) => {
+  console.log('封面图片上传响应:', response)
+  if (response && (response.success || response.code === 200)) {
+    const data = response.data || response
+    const thumbnailUrl = data.url || data
+    console.log('存储的封面图片URL:', thumbnailUrl)
+    form.value.thumbnail_url = thumbnailUrl
+    ElMessage.success('封面图片上传成功')
+  } else {
+    console.error('封面图片上传失败，响应:', response)
+    ElMessage.error(response?.message || response?.error || '上传失败')
+  }
+}
+
+// 封面图片上传失败
+const handleThumbnailUploadError = () => {
+  ElMessage.error('封面图片上传失败，请重试')
+}
+
+// 获取封面图片预览URL
+const getThumbnailPreviewUrl = (url) => {
+  if (!url) return ''
+  // 如果是相对路径，添加完整的基础URL
+  if (url.startsWith('/')) {
+    return window.location.origin + url
+  }
+  return url
+}
+
+// 封面图片加载错误
+const handleThumbnailError = () => {
+  ElMessage.warning('封面图片加载失败')
+}
+
+// 清除封面图片
+const clearThumbnail = () => {
+  form.value.thumbnail_url = ''
 }
 
 const beforeUpload = (file) => {
@@ -676,15 +1001,30 @@ const beforeUpload = (file) => {
 }
 
 const handleUploadSuccess = (response) => {
+  console.log('上传响应:', response)
   // 处理不同的响应格式
   if (response && (response.success || response.code === 200)) {
     const data = response.data || response
-    // 构建完整的URL
+    // 存储访问路径（后端返回的路径格式如：/uploads/videos/filename.mp4）
     const videoUrl = data.url || data
-    form.value.video_url = videoUrl.startsWith('http') ? videoUrl : `${window.location.origin}${videoUrl}`
+    console.log('存储的视频URL:', videoUrl)
+    // 确保存储的是相对路径，用于数据库存储
+    form.value.video_url = videoUrl
+    console.log('form.video_url 已设置为:', form.value.video_url)
+    
+    // 如果视频标题为空，尝试从文件名提取
+    if (!form.value.video_title && data.filename) {
+      const filenameWithoutExt = data.filename.replace(/\.(mp4|mov|avi|flv|wmv|webm|mkv)$/i, '')
+      // 移除时间戳前缀（格式：20251228_132342_）
+      const title = filenameWithoutExt.replace(/^\d{8}_\d{6}_/, '')
+      if (title) {
+        form.value.video_title = title
+      }
+    }
+    
     ElMessage.success('上传成功')
-    uploadDialogVisible.value = false
   } else {
+    console.error('上传失败，响应:', response)
     ElMessage.error(response?.message || response?.error || '上传失败')
   }
 }
@@ -701,8 +1041,8 @@ const handlePublishTypeChange = () => {
 
 const nextStep = () => {
   if (currentStep.value === 0) {
-    if (videoSource.value === 'url' && !form.value.video_url) {
-      ElMessage.warning('请输入视频URL')
+    if (videoSource.value === 'upload' && !form.value.video_url) {
+      ElMessage.warning('请上传视频文件')
       return
     }
     if (videoSource.value === 'library' && !form.value.video_id) {
@@ -713,6 +1053,21 @@ const nextStep = () => {
   if (currentStep.value === 1) {
     if (!form.value.account_ids || form.value.account_ids.length === 0) {
       ElMessage.warning('请至少选择一个账号')
+      return
+    }
+  }
+  if (currentStep.value === 2) {
+    // 验证视频信息
+    if (!form.value.video_title || form.value.video_title.trim() === '') {
+      ElMessage.warning('请输入视频标题')
+      return
+    }
+    if (form.value.video_title.length > 100) {
+      ElMessage.warning('视频标题不能超过100个字符')
+      return
+    }
+    if (form.value.video_description && form.value.video_description.length > 500) {
+      ElMessage.warning('视频描述不能超过500个字符')
       return
     }
   }
@@ -840,7 +1195,7 @@ const handleReset = () => {
     retry_count: 3
   }
   currentStep.value = 0
-  videoSource.value = 'url'
+  videoSource.value = 'upload'
   selectedPlatforms.value = []
   publishType.value = 'immediate'
   publishInterval.value = 30
@@ -932,7 +1287,13 @@ onMounted(() => {
   padding: 20px 0;
 }
 
-.upload-demo {
+.video-uploader {
   width: 100%;
+}
+
+.video-uploader .el-upload__tip {
+  color: #909399;
+  font-size: 12px;
+  margin-top: 8px;
 }
 </style>

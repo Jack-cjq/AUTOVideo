@@ -209,6 +209,7 @@ async def execute_video_upload(task_id: int):
     Args:
         task_id: 任务ID
     """
+    # 使用独立的数据库会话来更新状态，避免长时间执行导致连接超时
     with get_db() as db:
         task = db.query(VideoTask).filter(VideoTask.id == task_id).first()
         if not task:
@@ -221,6 +222,8 @@ async def execute_video_upload(task_id: int):
         task.started_at = datetime.now()
         task.progress = 0
         db.commit()
+        if douyin_logger:
+            douyin_logger.info(f"Video task {task_id} status updated to 'uploading'")
         
         try:
             # 获取账号信息（包括cookies）
@@ -387,18 +390,38 @@ async def execute_video_upload(task_id: int):
                 task.account_id
             )
             
+            # 重新查询任务，确保获取最新的对象（因为 execute_upload 可能执行时间较长）
+            db.refresh(task)
+            
             # 更新cookies到数据库
             if updated_cookies:
                 save_cookies_to_db(task.account_id, updated_cookies, db)
             
             # 更新任务状态为完成
+            # 注意：在长时间执行后，需要确保任务对象仍然有效
             task.status = 'completed'
             task.progress = 100
             task.completed_at = datetime.now()
+            
+            # 确保提交到数据库
             db.commit()
+            db.flush()  # 强制刷新到数据库
+            
+            # 再次刷新，确保状态已保存
+            db.refresh(task)
             
             if douyin_logger:
-                douyin_logger.success(f"Video task {task_id} completed")
+                douyin_logger.success(f"Video task {task_id} completed successfully")
+                douyin_logger.info(f"Task {task_id} final status: {task.status}, progress: {task.progress}, completed_at: {task.completed_at}")
+            
+            # 验证状态是否真的更新成功
+            if task.status != 'completed':
+                douyin_logger.error(f"Warning: Task {task_id} status update may have failed. Current status: {task.status}")
+                # 尝试再次更新
+                task.status = 'completed'
+                task.progress = 100
+                db.commit()
+                db.refresh(task)
             
             # 清理临时文件
             try:

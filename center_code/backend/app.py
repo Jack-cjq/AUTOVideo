@@ -167,22 +167,85 @@ def login_helper():
 
 
 # 提供上传文件的静态路由
-@app.route('/uploads/<path:filename>')
+@app.route('/uploads/<path:filename>', methods=['GET', 'OPTIONS'])
 def uploaded_file(filename):
     """提供上传的文件访问"""
-    upload_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'uploads')
-    file_path = os.path.join(upload_dir, filename)
+    from flask import Response, request, send_file
+    import mimetypes
     
-    # 安全检查：确保文件在 uploads 目录内
-    upload_dir_abs = os.path.abspath(upload_dir)
-    file_path_abs = os.path.abspath(file_path)
-    if not file_path_abs.startswith(upload_dir_abs):
-        return {'error': 'Invalid file path'}, 403
-    
-    if os.path.exists(file_path):
-        return send_from_directory(upload_dir, filename)
-    else:
-        return {'error': 'File not found'}, 404
+    try:
+        # 处理 OPTIONS 请求（CORS 预检）
+        if request.method == 'OPTIONS':
+            response = Response()
+            response.headers['Access-Control-Allow-Origin'] = '*'
+            response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
+            response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+            return response
+        
+        upload_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'uploads')
+        file_path = os.path.join(upload_dir, filename)
+        
+        # 调试信息
+        print(f"请求文件: {filename}")
+        print(f"上传目录: {upload_dir}")
+        print(f"文件路径: {file_path}")
+        print(f"文件是否存在: {os.path.exists(file_path)}")
+        
+        # 安全检查：确保文件在 uploads 目录内
+        upload_dir_abs = os.path.abspath(upload_dir)
+        file_path_abs = os.path.abspath(file_path)
+        if not file_path_abs.startswith(upload_dir_abs):
+            print(f"路径安全检查失败: {file_path_abs} 不在 {upload_dir_abs} 内")
+            return {'error': 'Invalid file path'}, 403
+        
+        if not os.path.exists(file_path):
+            print(f"文件不存在: {file_path}")
+            return {'error': 'File not found'}, 404
+        
+        if not os.path.isfile(file_path):
+            print(f"不是文件: {file_path}")
+            return {'error': 'Not a file'}, 400
+        # 获取文件的 MIME 类型
+        mimetype, _ = mimetypes.guess_type(file_path)
+        if not mimetype:
+            # 根据文件扩展名设置默认 MIME 类型
+            ext = os.path.splitext(filename)[1].lower()
+            mimetype_map = {
+                '.mp4': 'video/mp4',
+                '.mov': 'video/quicktime',
+                '.avi': 'video/x-msvideo',
+                '.flv': 'video/x-flv',
+                '.wmv': 'video/x-ms-wmv',
+                '.webm': 'video/webm',
+                '.mkv': 'video/x-matroska'
+            }
+            mimetype = mimetype_map.get(ext, 'application/octet-stream')
+        
+        # 使用 send_file 直接发送文件（支持嵌套路径）
+        try:
+            response = send_file(
+                file_path,
+                mimetype=mimetype,
+                as_attachment=False,
+                download_name=os.path.basename(filename)  # 下载时的文件名
+            )
+            # 设置 CORS 头，允许跨域访问
+            response.headers['Access-Control-Allow-Origin'] = '*'
+            response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS, HEAD'
+            response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Range'
+            # 支持视频范围请求（用于视频播放）
+            response.headers['Accept-Ranges'] = 'bytes'
+            return response
+        except Exception as e:
+            print(f"发送文件时出错: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return {'error': f'Failed to send file: {str(e)}'}, 500
+    except Exception as e:
+        print(f"处理文件请求时出错: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return {'error': f'Internal server error: {str(e)}'}, 500
 
 
 @app.route('/api/health', methods=['GET'])

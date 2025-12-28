@@ -47,6 +47,18 @@ export default defineConfig({
             console.error('  VITE_BACKEND_PORT=8081 或 VITE_BACKEND_URL=http://localhost:8081');
           });
         }
+      },
+      '/uploads': {
+        target: backendUrl,  // 后端地址，用于访问上传的文件
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => path,  // 保持路径不变
+        configure: (proxy, _options) => {
+          proxy.on('error', (err, req, res) => {
+            console.error('上传文件代理错误:', err.message);
+            console.error(`无法连接到后端服务器: ${backendUrl}`);
+          });
+        }
       }
     }
   },
