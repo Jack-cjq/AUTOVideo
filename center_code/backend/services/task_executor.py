@@ -380,6 +380,10 @@ async def execute_video_upload(task_id: int):
             if douyin_logger:
                 douyin_logger.info(f"Starting upload: title={task.video_title}, video_path={video_path}, tags={tags}")
             
+            # 执行上传
+            if douyin_logger:
+                douyin_logger.info(f"开始执行视频上传任务 {task_id}...")
+            
             updated_cookies = await execute_upload(
                 task.video_title or '',
                 video_path,  # 使用处理后的路径
@@ -390,38 +394,107 @@ async def execute_video_upload(task_id: int):
                 task.account_id
             )
             
+            # 明确记录从 uploader 返回的结果
+            print(f"[TASK STATUS] 任务 {task_id} 的视频上传已完成，收到返回结果: {type(updated_cookies).__name__}")
+            if douyin_logger:
+                douyin_logger.info(f"视频上传任务 {task_id} 执行完成，收到 uploader 返回结果，开始更新任务状态...")
+                if updated_cookies:
+                    if isinstance(updated_cookies, dict) and ('cookies' in updated_cookies or 'origins' in updated_cookies):
+                        douyin_logger.info(f"收到有效的 cookies 数据，将更新到数据库")
+                    elif isinstance(updated_cookies, dict) and updated_cookies.get('upload_success'):
+                        douyin_logger.info(f"收到上传成功标记，视频已成功发布")
+                    else:
+                        douyin_logger.info(f"收到其他格式的返回数据: {updated_cookies}")
+                else:
+                    douyin_logger.warning(f"未收到返回数据，但将继续更新任务状态")
+            
             # 重新查询任务，确保获取最新的对象（因为 execute_upload 可能执行时间较长）
-            db.refresh(task)
+            # 使用新的查询确保获取最新的任务对象
+            db.expire_all()  # 清除所有对象的缓存
+            task = db.query(VideoTask).filter(VideoTask.id == task_id).first()
+            if not task:
+                if douyin_logger:
+                    douyin_logger.error(f"Video task {task_id} not found after upload")
+                return
             
             # 更新cookies到数据库
+            # updated_cookies 可能是 cookies 字典，也可能是 {"upload_success": True} 标记
             if updated_cookies:
-                save_cookies_to_db(task.account_id, updated_cookies, db)
+                # 检查是否是有效的cookies格式（包含cookies或origins字段）
+                if isinstance(updated_cookies, dict):
+                    if 'cookies' in updated_cookies or 'origins' in updated_cookies:
+                        # 这是有效的cookies格式
+                        if douyin_logger:
+                            douyin_logger.info(f"更新账号 {task.account_id} 的 cookies 到数据库...")
+                        save_cookies_to_db(task.account_id, updated_cookies, db)
+                        if douyin_logger:
+                            douyin_logger.success(f"账号 {task.account_id} 的 cookies 已更新到数据库")
+                    elif updated_cookies.get('upload_success'):
+                        # 这是上传成功的标记，但cookies读取失败
+                        if douyin_logger:
+                            douyin_logger.warning(f"Upload successful but cookies not updated for account {task.account_id}")
+                else:
+                    # 其他格式，尝试保存
+                    save_cookies_to_db(task.account_id, updated_cookies, db)
             
-            # 更新任务状态为完成
-            # 注意：在长时间执行后，需要确保任务对象仍然有效
+            # 无论cookies是否更新成功，都要更新任务状态为完成
+            # 因为视频已经发布成功了（execute_upload 正常返回表示上传成功）
+            print(f"[TASK STATUS] 视频发布成功，更新任务 {task_id} 状态为 completed...")
+            if douyin_logger:
+                douyin_logger.info(f"视频发布成功，更新任务 {task_id} 状态为 completed...")
+            
+            # 更新任务状态
             task.status = 'completed'
             task.progress = 100
             task.completed_at = datetime.now()
             
             # 确保提交到数据库
-            db.commit()
-            db.flush()  # 强制刷新到数据库
+            try:
+                db.commit()
+                db.flush()  # 强制刷新到数据库
+                print(f"[TASK STATUS] 任务 {task_id} 状态已提交到数据库: status=completed, progress=100")
+                if douyin_logger:
+                    douyin_logger.info(f"任务 {task_id} 状态已提交到数据库: status=completed, progress=100")
+            except Exception as commit_error:
+                print(f"[TASK STATUS] 提交任务状态到数据库失败: {commit_error}")
+                if douyin_logger:
+                    douyin_logger.error(f"提交任务状态到数据库失败: {commit_error}")
+                # 尝试回滚后重新提交
+                db.rollback()
+                task.status = 'completed'
+                task.progress = 100
+                task.completed_at = datetime.now()
+                db.commit()
+                db.flush()
+                print(f"[TASK STATUS] 任务 {task_id} 状态已重新提交到数据库")
             
             # 再次刷新，确保状态已保存
             db.refresh(task)
             
+            print(f"[TASK STATUS] ✅ 任务 {task_id} 状态更新成功: status={task.status}, progress={task.progress}, completed_at={task.completed_at}")
             if douyin_logger:
                 douyin_logger.success(f"Video task {task_id} completed successfully")
                 douyin_logger.info(f"Task {task_id} final status: {task.status}, progress: {task.progress}, completed_at: {task.completed_at}")
             
             # 验证状态是否真的更新成功
             if task.status != 'completed':
-                douyin_logger.error(f"Warning: Task {task_id} status update may have failed. Current status: {task.status}")
+                if douyin_logger:
+                    douyin_logger.error(f"Warning: Task {task_id} status update may have failed. Current status: {task.status}")
                 # 尝试再次更新
                 task.status = 'completed'
                 task.progress = 100
+                task.completed_at = datetime.now()
                 db.commit()
+                db.flush()
                 db.refresh(task)
+                
+                # 最终验证
+                if task.status != 'completed':
+                    if douyin_logger:
+                        douyin_logger.error(f"ERROR: Failed to update task {task_id} status to completed after retry. Current status: {task.status}")
+                else:
+                    if douyin_logger:
+                        douyin_logger.success(f"Task {task_id} status updated to completed after retry")
             
             # 清理临时文件
             try:
@@ -461,30 +534,65 @@ async def execute_video_upload(task_id: int):
 
 async def execute_upload(title: str, file_path: str, tags: list, publish_date, account_file: str, thumbnail_path: str = None, account_id: int = None):
     """执行视频上传"""
-    app = DouYinVideo(
-        title=title,
-        file_path=file_path,
-        tags=tags,
-        publish_date=publish_date,
-        account_file=account_file,
-        thumbnail_path=thumbnail_path,
-        account_id=account_id  # 传递 account_id，用于自动登录时更新数据库
-    )
-    await app.main()
-    if douyin_logger:
-        douyin_logger.success(f"Video uploaded successfully: {title}")
-    
-    # 读取更新后的cookie
     try:
-        if os.path.exists(account_file):
-            with open(account_file, 'r', encoding='utf-8') as f:
-                updated_cookies = json.load(f)
+        app = DouYinVideo(
+            title=title,
+            file_path=file_path,
+            tags=tags,
+            publish_date=publish_date,
+            account_file=account_file,
+            thumbnail_path=thumbnail_path,
+            account_id=account_id  # 传递 account_id，用于自动登录时更新数据库
+        )
+        # 执行上传，upload 方法现在会返回更新后的cookies
+        print(f"[UPLOAD] 开始调用 DouYinVideo.main() 执行视频上传...")
+        if douyin_logger:
+            douyin_logger.info(f"开始调用 DouYinVideo.main() 执行视频上传: {title}")
+        
+        updated_cookies = await app.main()
+        
+        print(f"[UPLOAD] DouYinVideo.main() 执行完成，返回结果类型: {type(updated_cookies).__name__}")
+        if douyin_logger:
+            douyin_logger.success(f"Video uploaded successfully: {title}")
+            if updated_cookies:
+                if isinstance(updated_cookies, dict) and ('cookies' in updated_cookies or 'origins' in updated_cookies):
+                    douyin_logger.info(f"收到有效的 cookies 数据，包含 {len(updated_cookies.get('cookies', []))} 个 cookies")
+                elif isinstance(updated_cookies, dict) and updated_cookies.get('upload_success'):
+                    douyin_logger.info(f"收到上传成功标记")
+                else:
+                    douyin_logger.info(f"收到其他格式的返回数据")
+            else:
+                douyin_logger.warning(f"未收到返回数据，将尝试从文件读取")
+        
+        # 如果 upload 方法返回了cookies，直接返回
+        if updated_cookies:
+            print(f"[UPLOAD] 返回 uploader 的返回结果给 task_executor")
             return updated_cookies
+        
+        # 如果 upload 方法没有返回cookies，尝试从文件读取
+        print(f"[UPLOAD] uploader 未返回数据，尝试从文件读取 cookies...")
+        try:
+            if os.path.exists(account_file):
+                with open(account_file, 'r', encoding='utf-8') as f:
+                    updated_cookies = json.load(f)
+                print(f"[UPLOAD] 成功从文件读取 cookies，返回给 task_executor")
+                if douyin_logger:
+                    douyin_logger.info(f"成功从文件读取 cookies")
+                return updated_cookies
+        except Exception as e:
+            if douyin_logger:
+                douyin_logger.warning(f"Failed to read updated cookies: {e}, but upload was successful")
+        
+        # 即使读取cookies失败，也返回一个标记表示上传成功
+        # 这样调用方可以知道上传已完成
+        print(f"[UPLOAD] cookies 读取失败，返回成功标记给 task_executor")
+        if douyin_logger:
+            douyin_logger.info(f"返回上传成功标记给 task_executor，任务状态将被更新为 completed")
+        return {"upload_success": True}
     except Exception as e:
         if douyin_logger:
-            douyin_logger.error(f"Failed to read updated cookies: {e}")
-    
-    return None
+            douyin_logger.error(f"Video upload failed: {e}")
+        raise  # 重新抛出异常，让调用方处理
 
 
 async def execute_chat_send(task_id: int):

@@ -28,9 +28,15 @@
                 <el-tag :type="getStatusType(row.status)">{{ getStatusText(row.status) }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="created_at" label="发布时间" width="180">
+            <el-table-column prop="publish_time" label="发布时间" width="180">
               <template #default="{ row }">
-                {{ row.created_at ? new Date(row.created_at).toLocaleString('zh-CN') : '-' }}
+                {{
+                  row.status === 'completed' && row.completed_at
+                    ? new Date(row.completed_at).toLocaleString('zh-CN')
+                    : row.created_at
+                    ? new Date(row.created_at).toLocaleString('zh-CN')
+                    : '-'
+                }}
               </template>
             </el-table-column>
             <el-table-column prop="progress" label="进度" width="120">

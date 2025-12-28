@@ -298,7 +298,7 @@ class DouYinVideo(object):
             douyin_logger.error(f"从数据库验证 cookies 失败: {e}")
             return False
 
-    async def upload(self, playwright: Playwright) -> None:
+    async def upload(self, playwright: Playwright):
         # 验证cookies（从数据库）
         await self._validate_cookies_from_db()
         
@@ -480,16 +480,22 @@ class DouYinVideo(object):
         await context.storage_state(path=self.account_file)  # 保存cookie到临时文件
         douyin_logger.success('  [-]cookie更新完毕！')
         
-        # 如果提供了 account_id，更新数据库中的cookies
-        if self.account_id:
-            try:
+        # 读取更新后的cookies（用于返回给调用方）
+        updated_cookies = None
+        try:
+            if os.path.exists(self.account_file):
                 import json
-                from db import get_db
-                from services.task_executor import save_cookies_to_db
-                
-                # 读取更新后的cookies
                 with open(self.account_file, 'r', encoding='utf-8') as f:
                     updated_cookies = json.load(f)
+                douyin_logger.info(f'  [-]成功读取更新后的cookies，准备返回给 task_executor 更新任务状态')
+        except Exception as e:
+            douyin_logger.warning(f'  [-]读取cookies文件失败: {e}，但上传已成功，将返回成功标记')
+        
+        # 如果提供了 account_id，更新数据库中的cookies
+        if self.account_id and updated_cookies:
+            try:
+                from db import get_db
+                from services.task_executor import save_cookies_to_db
                 
                 # 更新到数据库
                 with get_db() as db:
@@ -502,6 +508,16 @@ class DouYinVideo(object):
         # 关闭浏览器上下文和浏览器实例
         await context.close()
         await browser.close()
+        
+        # 返回更新后的cookies，这样调用方可以知道上传成功
+        # 如果 cookies 读取失败，返回成功标记，确保 task_executor 能正确更新任务状态
+        if updated_cookies:
+            douyin_logger.info(f'  [-]返回更新后的cookies给 task_executor，任务状态将被更新为 completed')
+            return updated_cookies
+        else:
+            # 即使 cookies 读取失败，也返回成功标记，确保任务状态能正确更新
+            douyin_logger.info(f'  [-]cookies读取失败，返回成功标记给 task_executor，任务状态将被更新为 completed')
+            return {"upload_success": True}
     
     async def set_thumbnail(self, page: Page, thumbnail_path: str):
         if thumbnail_path:
@@ -544,6 +560,6 @@ class DouYinVideo(object):
 
     async def main(self):
         async with async_playwright() as playwright:
-            await self.upload(playwright)
+            return await self.upload(playwright)
 
 

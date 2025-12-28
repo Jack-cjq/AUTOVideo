@@ -456,3 +456,157 @@ Call log:
 2025-12-28 13:40:46.895 | SUCCESS  | uploader.douyin_uploader.main:upload:472 -   [-]视频发布成功
 2025-12-28 13:40:47.087 | SUCCESS  | uploader.douyin_uploader.main:upload:481 -   [-]cookie更新完毕！
 2025-12-28 13:40:47.121 | SUCCESS  | uploader.douyin_uploader.main:upload:497 -   [-]账号 6 的 cookies 已更新到数据库
+2025-12-28 13:42:27.623 | SUCCESS  | services.task_executor:execute_upload:475 - Video uploaded successfully: 测试视频
+2025-12-28 13:42:27.625 | ERROR    | services.task_executor:execute_video_upload:437 - Video task 29 failed: Instance '<VideoTask at 0x23c7c805050>' is not persistent within this Session
+2025-12-28 13:43:39.561 | INFO     | services.task_executor:execute_video_upload:226 - Video task 28 status updated to 'uploading'
+2025-12-28 13:43:39.564 | INFO     | services.task_executor:execute_video_upload:243 - [COOKIES] Account 6 cookies preview: {"cookies": [{"name": "gd_random", "value": "eyJtYXRjaCI6dHJ1ZSwicGVyY2VudCI6MC4xNjk2MDE2NTMyOTczMDYwM30=.zmCagH5Vear4/vvpXtbJoqQwyU6+MVWOUwiDJWSti5Y=", "domain": "creator.douyin.com", "path": "/goofy...
+2025-12-28 13:43:39.565 | INFO     | services.task_executor:execute_video_upload:276 - 📦 Loaded cookies for account 6: 48 cookies, 3 origins
+2025-12-28 13:43:39.565 | WARNING  | services.task_executor:execute_video_upload:282 - ⚠️ Missing important cookies: ['passport_auth']. This may cause login failure.
+2025-12-28 13:43:39.565 | WARNING  | services.task_executor:execute_video_upload:283 - ⚠️ 建议：使用Network标签页获取完整的HttpOnly cookies
+2025-12-28 13:43:39.568 | WARNING  | services.task_executor:execute_video_upload:284 - ⚠️ 当前cookies可能不完整，发布视频时可能会失败
+2025-12-28 13:43:39.571 | INFO     | services.task_executor:execute_video_upload:295 - Cookie domains: ['creator.douyin.com', 'summon.bytedance.com', 'api.feelgood.cn', '.bytedance.com', '.douyin.com']...
+2025-12-28 13:43:39.573 | INFO     | services.task_executor:execute_video_upload:303 - Cookie names (first 10): ['gd_random', 'gd_random', 'gd_random', 'gd_random', 'SEARCH_RESULT_LIST_TYPE', 'hevc_supported', 'volume_info', 'bd_ticket_guard_client_web_domain', 'passport_csrf_token', 'passport_csrf_token_default']
+2025-12-28 13:43:39.598 | INFO     | services.task_executor:execute_video_upload:381 - Starting upload: title=测试视频, video_path=D:\Autovideo\center_code\uploads\videos\20251228_133310_c72d77a8a635b885bc00ea12c4d5df8e.mp4, tags=[]
+2025-12-28 13:43:39.600 | INFO     | uploader.douyin_uploader.main:__init__:74 - DouYinVideo initialized - title: '测试视频', tags: [], account_id: 6
+2025-12-28 13:43:40.769 | WARNING  | uploader.douyin_uploader.main:_validate_cookies_from_db:292 - 账号 6 缺少关键 cookies: ['passport_auth']
+2025-12-28 13:43:40.771 | INFO     | uploader.douyin_uploader.main:_validate_cookies_from_db:294 - 从数据库验证 cookies: 账号 6, 48 个 cookies
+2025-12-28 13:43:40.776 | INFO     | uploader.douyin_uploader.main:upload:308 - [浏览器] 使用 Chrome 浏览器: C:\Program Files\Google\Chrome\Application\chrome.exe
+2025-12-28 13:43:41.774 | INFO     | uploader.douyin_uploader.main:upload:315 - Loading cookies from: C:\Users\ADMINI~1\AppData\Local\Temp\tmphqyzngco.json
+2025-12-28 13:43:43.165 | INFO     | uploader.douyin_uploader.main:upload:322 - [+]正在上传-------测试视频.mp4
+2025-12-28 13:43:43.167 | INFO     | uploader.douyin_uploader.main:upload:323 - [-] 正在打开上传页面...
+2025-12-28 13:43:48.124 | INFO     | uploader.douyin_uploader.main:upload:346 - Cookies验证通过，继续上传流程
+2025-12-28 13:43:53.968 | INFO     | uploader.douyin_uploader.main:upload:366 - [+] 成功进入version_2发布页面!
+2025-12-28 13:43:55.208 | INFO     | uploader.douyin_uploader.main:upload:376 -   [-] 正在填充标题和话题...
+2025-12-28 13:43:55.213 | INFO     | uploader.douyin_uploader.main:upload:377 -   [-] 标题内容: "测试视频"
+2025-12-28 13:43:55.217 | INFO     | uploader.douyin_uploader.main:upload:378 -   [-] 标签列表: []
+2025-12-28 13:43:59.021 | INFO     | uploader.douyin_uploader.main:upload:399 -   [-] 已通过键盘输入标题: "测试视频"
+2025-12-28 13:43:59.836 | WARNING  | uploader.douyin_uploader.main:upload:416 -   [-] 标签列表为空，跳过标签填充
+2025-12-28 13:43:59.902 | SUCCESS  | uploader.douyin_uploader.main:upload:423 -   [-]视频上传完毕
+2025-12-28 13:44:01.925 | SUCCESS  | uploader.douyin_uploader.main:upload:472 -   [-]视频发布成功
+2025-12-28 13:44:02.102 | SUCCESS  | uploader.douyin_uploader.main:upload:481 -   [-]cookie更新完毕！
+2025-12-28 13:44:02.145 | SUCCESS  | uploader.douyin_uploader.main:upload:497 -   [-]账号 6 的 cookies 已更新到数据库
+2025-12-28 13:45:42.627 | SUCCESS  | services.task_executor:execute_upload:475 - Video uploaded successfully: 测试视频
+2025-12-28 13:45:42.627 | ERROR    | services.task_executor:execute_video_upload:437 - Video task 28 failed: Instance '<VideoTask at 0x23c7cc55090>' is not persistent within this Session
+2025-12-28 13:47:42.151 | INFO     | services.task_executor:execute_video_upload:226 - Video task 30 status updated to 'uploading'
+2025-12-28 13:47:42.160 | INFO     | services.task_executor:execute_video_upload:243 - [COOKIES] Account 6 cookies preview: {"cookies": [{"name": "gd_random", "value": "eyJtYXRjaCI6dHJ1ZSwicGVyY2VudCI6MC4xNjk2MDE2NTMyOTczMDYwM30=.zmCagH5Vear4/vvpXtbJoqQwyU6+MVWOUwiDJWSti5Y=", "domain": "creator.douyin.com", "path": "/goofy...
+2025-12-28 13:47:42.165 | INFO     | services.task_executor:execute_video_upload:276 - 📦 Loaded cookies for account 6: 47 cookies, 3 origins
+2025-12-28 13:47:42.166 | WARNING  | services.task_executor:execute_video_upload:282 - ⚠️ Missing important cookies: ['passport_auth']. This may cause login failure.
+2025-12-28 13:47:42.168 | WARNING  | services.task_executor:execute_video_upload:283 - ⚠️ 建议：使用Network标签页获取完整的HttpOnly cookies
+2025-12-28 13:47:42.170 | WARNING  | services.task_executor:execute_video_upload:284 - ⚠️ 当前cookies可能不完整，发布视频时可能会失败
+2025-12-28 13:47:42.171 | INFO     | services.task_executor:execute_video_upload:295 - Cookie domains: ['creator.douyin.com', 'api.feelgood.cn', '.bytedance.com', 'summon.bytedance.com', '.douyin.com']...
+2025-12-28 13:47:42.177 | INFO     | services.task_executor:execute_video_upload:303 - Cookie names (first 10): ['gd_random', 'gd_random', 'gd_random', 'gd_random', 'SEARCH_RESULT_LIST_TYPE', 'hevc_supported', 'volume_info', 'bd_ticket_guard_client_web_domain', 'passport_csrf_token', 'passport_csrf_token_default']
+2025-12-28 13:47:42.214 | INFO     | services.task_executor:execute_video_upload:381 - Starting upload: title=测试, video_path=D:\Autovideo\center_code\uploads\videos\20251228_134729_c72d77a8a635b885bc00ea12c4d5df8e.mp4, tags=[]
+2025-12-28 13:47:42.215 | INFO     | uploader.douyin_uploader.main:__init__:74 - DouYinVideo initialized - title: '测试', tags: [], account_id: 6
+2025-12-28 13:47:43.336 | WARNING  | uploader.douyin_uploader.main:_validate_cookies_from_db:292 - 账号 6 缺少关键 cookies: ['passport_auth']
+2025-12-28 13:47:43.336 | INFO     | uploader.douyin_uploader.main:_validate_cookies_from_db:294 - 从数据库验证 cookies: 账号 6, 47 个 cookies
+2025-12-28 13:47:43.336 | INFO     | uploader.douyin_uploader.main:upload:308 - [浏览器] 使用 Chrome 浏览器: C:\Program Files\Google\Chrome\Application\chrome.exe
+2025-12-28 13:47:43.709 | INFO     | uploader.douyin_uploader.main:upload:315 - Loading cookies from: C:\Users\ADMINI~1\AppData\Local\Temp\tmplfcj3bpb.json
+2025-12-28 13:47:44.624 | INFO     | uploader.douyin_uploader.main:upload:322 - [+]正在上传-------测试.mp4
+2025-12-28 13:47:44.624 | INFO     | uploader.douyin_uploader.main:upload:323 - [-] 正在打开上传页面...
+2025-12-28 13:47:49.298 | INFO     | uploader.douyin_uploader.main:upload:346 - Cookies验证通过，继续上传流程
+2025-12-28 13:47:54.774 | INFO     | uploader.douyin_uploader.main:upload:366 - [+] 成功进入version_2发布页面!
+2025-12-28 13:47:55.988 | INFO     | uploader.douyin_uploader.main:upload:376 -   [-] 正在填充标题和话题...
+2025-12-28 13:47:55.988 | INFO     | uploader.douyin_uploader.main:upload:377 -   [-] 标题内容: "测试"
+2025-12-28 13:47:55.988 | INFO     | uploader.douyin_uploader.main:upload:378 -   [-] 标签列表: []
+2025-12-28 13:47:59.350 | INFO     | uploader.douyin_uploader.main:upload:399 -   [-] 已通过键盘输入标题: "测试"
+2025-12-28 13:48:00.152 | WARNING  | uploader.douyin_uploader.main:upload:416 -   [-] 标签列表为空，跳过标签填充
+2025-12-28 13:48:00.161 | SUCCESS  | uploader.douyin_uploader.main:upload:423 -   [-]视频上传完毕
+2025-12-28 13:48:01.093 | SUCCESS  | uploader.douyin_uploader.main:upload:472 -   [-]视频发布成功
+2025-12-28 13:48:01.284 | SUCCESS  | uploader.douyin_uploader.main:upload:481 -   [-]cookie更新完毕！
+2025-12-28 13:48:01.317 | SUCCESS  | uploader.douyin_uploader.main:upload:497 -   [-]账号 6 的 cookies 已更新到数据库
+2025-12-28 13:49:41.739 | SUCCESS  | services.task_executor:execute_upload:505 - Video uploaded successfully: 测试
+2025-12-28 13:49:41.763 | SUCCESS  | services.task_executor:execute_video_upload:432 - Video task 30 completed successfully
+2025-12-28 13:49:41.763 | INFO     | services.task_executor:execute_video_upload:433 - Task 30 final status: completed, progress: 100, completed_at: 2025-12-28 13:49:42
+2025-12-28 13:49:47.249 | INFO     | services.task_executor:execute_video_upload:226 - Video task 29 status updated to 'uploading'
+2025-12-28 13:49:47.250 | INFO     | services.task_executor:execute_video_upload:243 - [COOKIES] Account 6 cookies preview: {"cookies": [{"name": "gd_random", "value": "eyJtYXRjaCI6dHJ1ZSwicGVyY2VudCI6MC4xNjk2MDE2NTMyOTczMDYwM30=.zmCagH5Vear4/vvpXtbJoqQwyU6+MVWOUwiDJWSti5Y=", "domain": "creator.douyin.com", "path": "/goofy...
+2025-12-28 13:49:47.252 | INFO     | services.task_executor:execute_video_upload:276 - 📦 Loaded cookies for account 6: 44 cookies, 3 origins
+2025-12-28 13:49:47.252 | WARNING  | services.task_executor:execute_video_upload:282 - ⚠️ Missing important cookies: ['passport_auth']. This may cause login failure.
+2025-12-28 13:49:47.252 | WARNING  | services.task_executor:execute_video_upload:283 - ⚠️ 建议：使用Network标签页获取完整的HttpOnly cookies
+2025-12-28 13:49:47.252 | WARNING  | services.task_executor:execute_video_upload:284 - ⚠️ 当前cookies可能不完整，发布视频时可能会失败
+2025-12-28 13:49:47.252 | INFO     | services.task_executor:execute_video_upload:295 - Cookie domains: ['creator.douyin.com', 'api.feelgood.cn', '.bytedance.com', 'summon.bytedance.com', '.douyin.com']...
+2025-12-28 13:49:47.252 | INFO     | services.task_executor:execute_video_upload:303 - Cookie names (first 10): ['gd_random', 'gd_random', 'gd_random', 'gd_random', 'SEARCH_RESULT_LIST_TYPE', 'hevc_supported', 'volume_info', 'bd_ticket_guard_client_web_domain', 'passport_csrf_token', 'passport_csrf_token_default']
+2025-12-28 13:49:47.267 | INFO     | services.task_executor:execute_video_upload:381 - Starting upload: title=测试视频, video_path=D:\Autovideo\center_code\uploads\videos\20251228_133929_c72d77a8a635b885bc00ea12c4d5df8e.mp4, tags=[]
+2025-12-28 13:49:47.267 | INFO     | uploader.douyin_uploader.main:__init__:74 - DouYinVideo initialized - title: '测试视频', tags: [], account_id: 6
+2025-12-28 13:49:47.714 | WARNING  | uploader.douyin_uploader.main:_validate_cookies_from_db:292 - 账号 6 缺少关键 cookies: ['passport_auth']
+2025-12-28 13:49:47.714 | INFO     | uploader.douyin_uploader.main:_validate_cookies_from_db:294 - 从数据库验证 cookies: 账号 6, 44 个 cookies
+2025-12-28 13:49:47.714 | INFO     | uploader.douyin_uploader.main:upload:308 - [浏览器] 使用 Chrome 浏览器: C:\Program Files\Google\Chrome\Application\chrome.exe
+2025-12-28 13:49:48.041 | INFO     | uploader.douyin_uploader.main:upload:315 - Loading cookies from: C:\Users\ADMINI~1\AppData\Local\Temp\tmpm2g545td.json
+2025-12-28 13:49:49.064 | INFO     | uploader.douyin_uploader.main:upload:322 - [+]正在上传-------测试视频.mp4
+2025-12-28 13:49:49.064 | INFO     | uploader.douyin_uploader.main:upload:323 - [-] 正在打开上传页面...
+2025-12-28 13:49:52.262 | INFO     | uploader.douyin_uploader.main:upload:346 - Cookies验证通过，继续上传流程
+2025-12-28 13:49:57.832 | INFO     | uploader.douyin_uploader.main:upload:366 - [+] 成功进入version_2发布页面!
+2025-12-28 13:49:59.042 | INFO     | uploader.douyin_uploader.main:upload:376 -   [-] 正在填充标题和话题...
+2025-12-28 13:49:59.042 | INFO     | uploader.douyin_uploader.main:upload:377 -   [-] 标题内容: "测试视频"
+2025-12-28 13:49:59.042 | INFO     | uploader.douyin_uploader.main:upload:378 -   [-] 标签列表: []
+2025-12-28 13:50:02.469 | INFO     | uploader.douyin_uploader.main:upload:399 -   [-] 已通过键盘输入标题: "测试视频"
+2025-12-28 13:50:03.284 | WARNING  | uploader.douyin_uploader.main:upload:416 -   [-] 标签列表为空，跳过标签填充
+2025-12-28 13:50:03.295 | SUCCESS  | uploader.douyin_uploader.main:upload:423 -   [-]视频上传完毕
+2025-12-28 13:50:04.249 | SUCCESS  | uploader.douyin_uploader.main:upload:472 -   [-]视频发布成功
+2025-12-28 13:50:04.487 | SUCCESS  | uploader.douyin_uploader.main:upload:481 -   [-]cookie更新完毕！
+2025-12-28 13:50:04.529 | SUCCESS  | uploader.douyin_uploader.main:upload:497 -   [-]账号 6 的 cookies 已更新到数据库
+2025-12-28 13:51:44.881 | SUCCESS  | services.task_executor:execute_upload:505 - Video uploaded successfully: 测试视频
+2025-12-28 13:51:44.914 | SUCCESS  | services.task_executor:execute_video_upload:432 - Video task 29 completed successfully
+2025-12-28 13:51:44.914 | INFO     | services.task_executor:execute_video_upload:433 - Task 29 final status: completed, progress: 100, completed_at: 2025-12-28 13:51:45
+2025-12-28 13:53:42.443 | INFO     | services.task_executor:execute_video_upload:226 - Video task 28 status updated to 'uploading'
+2025-12-28 13:53:42.447 | INFO     | services.task_executor:execute_video_upload:243 - [COOKIES] Account 6 cookies preview: {"cookies": [{"name": "gd_random", "value": "eyJtYXRjaCI6dHJ1ZSwicGVyY2VudCI6MC4xNjk2MDE2NTMyOTczMDYwM30=.zmCagH5Vear4/vvpXtbJoqQwyU6+MVWOUwiDJWSti5Y=", "domain": "creator.douyin.com", "path": "/goofy...
+2025-12-28 13:53:42.447 | INFO     | services.task_executor:execute_video_upload:276 - 📦 Loaded cookies for account 6: 44 cookies, 3 origins
+2025-12-28 13:53:42.449 | WARNING  | services.task_executor:execute_video_upload:282 - ⚠️ Missing important cookies: ['passport_auth']. This may cause login failure.
+2025-12-28 13:53:42.449 | WARNING  | services.task_executor:execute_video_upload:283 - ⚠️ 建议：使用Network标签页获取完整的HttpOnly cookies
+2025-12-28 13:53:42.449 | WARNING  | services.task_executor:execute_video_upload:284 - ⚠️ 当前cookies可能不完整，发布视频时可能会失败
+2025-12-28 13:53:42.453 | INFO     | services.task_executor:execute_video_upload:295 - Cookie domains: ['creator.douyin.com', 'api.feelgood.cn', '.bytedance.com', 'summon.bytedance.com', '.douyin.com']...
+2025-12-28 13:53:42.453 | INFO     | services.task_executor:execute_video_upload:303 - Cookie names (first 10): ['gd_random', 'gd_random', 'gd_random', 'gd_random', 'SEARCH_RESULT_LIST_TYPE', 'hevc_supported', 'volume_info', 'bd_ticket_guard_client_web_domain', 'passport_csrf_token', 'passport_csrf_token_default']
+2025-12-28 13:53:42.484 | INFO     | services.task_executor:execute_video_upload:381 - Starting upload: title=测试视频, video_path=D:\Autovideo\center_code\uploads\videos\20251228_133310_c72d77a8a635b885bc00ea12c4d5df8e.mp4, tags=[]
+2025-12-28 13:53:42.485 | INFO     | uploader.douyin_uploader.main:__init__:74 - DouYinVideo initialized - title: '测试视频', tags: [], account_id: 6
+2025-12-28 13:53:51.419 | WARNING  | uploader.douyin_uploader.main:_validate_cookies_from_db:292 - 账号 6 缺少关键 cookies: ['passport_auth']
+2025-12-28 13:53:51.422 | INFO     | uploader.douyin_uploader.main:_validate_cookies_from_db:294 - 从数据库验证 cookies: 账号 6, 44 个 cookies
+2025-12-28 13:53:51.423 | INFO     | uploader.douyin_uploader.main:upload:308 - [浏览器] 使用 Chrome 浏览器: C:\Program Files\Google\Chrome\Application\chrome.exe
+2025-12-28 13:53:51.973 | INFO     | uploader.douyin_uploader.main:upload:315 - Loading cookies from: C:\Users\ADMINI~1\AppData\Local\Temp\tmpbeure2i7.json
+2025-12-28 13:53:53.501 | INFO     | uploader.douyin_uploader.main:upload:322 - [+]正在上传-------测试视频.mp4
+2025-12-28 13:53:53.501 | INFO     | uploader.douyin_uploader.main:upload:323 - [-] 正在打开上传页面...
+2025-12-28 13:54:01.269 | INFO     | uploader.douyin_uploader.main:upload:346 - Cookies验证通过，继续上传流程
+2025-12-28 13:54:06.972 | INFO     | uploader.douyin_uploader.main:upload:366 - [+] 成功进入version_2发布页面!
+2025-12-28 13:54:08.180 | INFO     | uploader.douyin_uploader.main:upload:376 -   [-] 正在填充标题和话题...
+2025-12-28 13:54:08.180 | INFO     | uploader.douyin_uploader.main:upload:377 -   [-] 标题内容: "测试视频"
+2025-12-28 13:54:08.180 | INFO     | uploader.douyin_uploader.main:upload:378 -   [-] 标签列表: []
+2025-12-28 13:54:11.560 | INFO     | uploader.douyin_uploader.main:upload:399 -   [-] 已通过键盘输入标题: "测试视频"
+2025-12-28 13:54:12.371 | WARNING  | uploader.douyin_uploader.main:upload:416 -   [-] 标签列表为空，跳过标签填充
+2025-12-28 13:54:12.381 | SUCCESS  | uploader.douyin_uploader.main:upload:423 -   [-]视频上传完毕
+2025-12-28 13:54:13.284 | SUCCESS  | uploader.douyin_uploader.main:upload:472 -   [-]视频发布成功
+2025-12-28 13:54:13.478 | SUCCESS  | uploader.douyin_uploader.main:upload:481 -   [-]cookie更新完毕！
+2025-12-28 13:54:13.510 | SUCCESS  | uploader.douyin_uploader.main:upload:497 -   [-]账号 6 的 cookies 已更新到数据库
+2025-12-28 14:03:42.152 | INFO     | services.task_executor:execute_video_upload:226 - Video task 28 status updated to 'uploading'
+2025-12-28 14:03:42.156 | INFO     | services.task_executor:execute_video_upload:243 - [COOKIES] Account 6 cookies preview: {"cookies": [{"name": "gd_random", "value": "eyJtYXRjaCI6dHJ1ZSwicGVyY2VudCI6MC4xNjk2MDE2NTMyOTczMDYwM30=.zmCagH5Vear4/vvpXtbJoqQwyU6+MVWOUwiDJWSti5Y=", "domain": "creator.douyin.com", "path": "/goofy...
+2025-12-28 14:03:42.156 | INFO     | services.task_executor:execute_video_upload:276 - 📦 Loaded cookies for account 6: 44 cookies, 3 origins
+2025-12-28 14:03:42.156 | WARNING  | services.task_executor:execute_video_upload:282 - ⚠️ Missing important cookies: ['passport_auth']. This may cause login failure.
+2025-12-28 14:03:42.156 | WARNING  | services.task_executor:execute_video_upload:283 - ⚠️ 建议：使用Network标签页获取完整的HttpOnly cookies
+2025-12-28 14:03:42.156 | WARNING  | services.task_executor:execute_video_upload:284 - ⚠️ 当前cookies可能不完整，发布视频时可能会失败
+2025-12-28 14:03:42.156 | INFO     | services.task_executor:execute_video_upload:295 - Cookie domains: ['.bytedance.com', 'creator.douyin.com', 'summon.bytedance.com', 'api.feelgood.cn', '.douyin.com']...
+2025-12-28 14:03:42.158 | INFO     | services.task_executor:execute_video_upload:303 - Cookie names (first 10): ['gd_random', 'gd_random', 'gd_random', 'gd_random', 'SEARCH_RESULT_LIST_TYPE', 'hevc_supported', 'volume_info', 'bd_ticket_guard_client_web_domain', 'passport_csrf_token', 'passport_csrf_token_default']
+2025-12-28 14:03:42.174 | INFO     | services.task_executor:execute_video_upload:381 - Starting upload: title=测试视频, video_path=D:\Autovideo\center_code\uploads\videos\20251228_133310_c72d77a8a635b885bc00ea12c4d5df8e.mp4, tags=[]
+2025-12-28 14:03:42.174 | INFO     | services.task_executor:execute_video_upload:385 - 开始执行视频上传任务 28...
+2025-12-28 14:03:42.174 | INFO     | uploader.douyin_uploader.main:__init__:74 - DouYinVideo initialized - title: '测试视频', tags: [], account_id: 6
+2025-12-28 14:03:42.588 | WARNING  | uploader.douyin_uploader.main:_validate_cookies_from_db:292 - 账号 6 缺少关键 cookies: ['passport_auth']
+2025-12-28 14:03:42.589 | INFO     | uploader.douyin_uploader.main:_validate_cookies_from_db:294 - 从数据库验证 cookies: 账号 6, 44 个 cookies
+2025-12-28 14:03:42.589 | INFO     | uploader.douyin_uploader.main:upload:308 - [浏览器] 使用 Chrome 浏览器: C:\Program Files\Google\Chrome\Application\chrome.exe
+2025-12-28 14:03:42.957 | INFO     | uploader.douyin_uploader.main:upload:315 - Loading cookies from: C:\Users\ADMINI~1\AppData\Local\Temp\tmpc8amy_n3.json
+2025-12-28 14:03:43.781 | INFO     | uploader.douyin_uploader.main:upload:322 - [+]正在上传-------测试视频.mp4
+2025-12-28 14:03:43.781 | INFO     | uploader.douyin_uploader.main:upload:323 - [-] 正在打开上传页面...
+2025-12-28 14:03:46.309 | INFO     | uploader.douyin_uploader.main:upload:346 - Cookies验证通过，继续上传流程
+2025-12-28 14:03:51.815 | INFO     | uploader.douyin_uploader.main:upload:366 - [+] 成功进入version_2发布页面!
+2025-12-28 14:03:53.024 | INFO     | uploader.douyin_uploader.main:upload:376 -   [-] 正在填充标题和话题...
+2025-12-28 14:03:53.024 | INFO     | uploader.douyin_uploader.main:upload:377 -   [-] 标题内容: "测试视频"
+2025-12-28 14:03:53.024 | INFO     | uploader.douyin_uploader.main:upload:378 -   [-] 标签列表: []
+2025-12-28 14:03:56.457 | INFO     | uploader.douyin_uploader.main:upload:399 -   [-] 已通过键盘输入标题: "测试视频"
+2025-12-28 14:03:57.260 | WARNING  | uploader.douyin_uploader.main:upload:416 -   [-] 标签列表为空，跳过标签填充
+2025-12-28 14:03:57.269 | SUCCESS  | uploader.douyin_uploader.main:upload:423 -   [-]视频上传完毕
+2025-12-28 14:03:58.451 | SUCCESS  | uploader.douyin_uploader.main:upload:472 -   [-]视频发布成功
+2025-12-28 14:03:58.644 | SUCCESS  | uploader.douyin_uploader.main:upload:481 -   [-]cookie更新完毕！
+2025-12-28 14:03:58.674 | SUCCESS  | uploader.douyin_uploader.main:upload:502 -   [-]账号 6 的 cookies 已更新到数据库
+2025-12-28 14:05:39.010 | SUCCESS  | services.task_executor:execute_upload:535 - Video uploaded successfully: 测试视频
+2025-12-28 14:05:39.011 | INFO     | services.task_executor:execute_video_upload:398 - 视频上传任务 28 执行完成，开始更新任务状态...
+2025-12-28 14:05:39.012 | INFO     | services.task_executor:execute_video_upload:417 - 更新账号 6 的 cookies 到数据库...
+2025-12-28 14:05:39.024 | SUCCESS  | services.task_executor:execute_video_upload:420 - 账号 6 的 cookies 已更新到数据库
+2025-12-28 14:05:39.024 | INFO     | services.task_executor:execute_video_upload:432 - 视频发布成功，更新任务 28 状态为 completed...
+2025-12-28 14:05:39.035 | INFO     | services.task_executor:execute_video_upload:444 - 任务 28 状态已提交到数据库
+2025-12-28 14:05:39.037 | SUCCESS  | services.task_executor:execute_video_upload:460 - Video task 28 completed successfully
+2025-12-28 14:05:39.037 | INFO     | services.task_executor:execute_video_upload:461 - Task 28 final status: completed, progress: 100, completed_at: 2025-12-28 14:05:39
