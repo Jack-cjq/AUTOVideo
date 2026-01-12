@@ -151,151 +151,235 @@
 
     <!-- 剪辑生成步骤 -->
     <div class="aiStep" :class="{ active: aiTab === 'edit' }" v-if="aiTab === 'edit'">
-      <div class="panel" style="max-width:980px;margin:14px auto 0;">
-        <div class="row">
-          <div class="field">
-            <div class="label">视频素材选择（来自云素材库/本地上传）</div>
-            <div class="chip-list" ref="selectedVideos"></div>
-            <div class="label" style="margin-top:8px;">
-              小提示：去"云素材库 → 视频素材库"点"添加到剪辑轨道"。
+      <!-- 视频素材选择 -->
+      <div class="edit-section">
+        <div class="section-header">
+          <div class="section-title">
+            <svg class="section-icon" viewBox="0 0 24 24" fill="none">
+              <path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span>视频素材</span>
+          </div>
+          <div class="section-hint">从云素材库选择或本地上传</div>
+        </div>
+        <div class="panel edit-panel">
+          <div class="edit-row">
+            <div class="edit-field full-width">
+              <div class="field-label">
+                已选视频素材
+                <span class="label-badge" v-if="(props.timeline?.clips || []).length > 0">
+                  {{ (props.timeline?.clips || []).length }} 个
+                </span>
+              </div>
+              <div class="chip-list" ref="selectedVideos"></div>
+              <div class="field-hint">
+                <svg class="hint-icon" viewBox="0 0 24 24" fill="none">
+                  <path d="M12 16v-4M12 8h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                  <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/>
+                </svg>
+                <span>
+                  <strong>说明：</strong>这里显示您选择的视频素材，将按顺序拼接成最终视频。
+                  可通过 ↑↓ 调整顺序，× 删除素材。
+                  去"云素材库 → 视频素材库"点击"添加到剪辑轨道"来选择素材。
+                </span>
+              </div>
             </div>
           </div>
-          <div class="field">
-            <div class="label">本地上传视频并添加</div>
-            <input 
-              class="input" 
-              type="file" 
-              accept=".mp4,.avi,.mov"
-              @change="handleAiVideoUpload"
-            />
-            <div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap;">
-              <button class="btn" @click="handleAiGen">
-                <span>AI生成（占位）</span>
+          <div class="edit-row" style="margin-top:16px;">
+            <div class="edit-field">
+              <div class="field-label">本地上传</div>
+              <label class="upload-btn">
+                <input 
+                  type="file" 
+                  accept=".mp4,.avi,.mov"
+                  @change="handleAiVideoUpload"
+                  style="display:none"
+                />
+                <svg class="btn-icon" viewBox="0 0 24 24" fill="none">
+                  <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <span>选择视频文件</span>
+              </label>
+            </div>
+            <div class="edit-field">
+              <div class="field-label">AI生成（占位）</div>
+              <button class="btn btn-secondary" @click="handleAiGen">
+                <svg class="btn-icon" viewBox="0 0 24 24" fill="none">
+                  <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+                <span>AI生成</span>
               </button>
             </div>
           </div>
         </div>
       </div>
 
-      <div class="panel" style="max-width:980px;margin:14px auto 0;">
-        <div class="row">
-          <div class="field">
-            <div class="label">配音（来自 TTS / 音频素材库）</div>
-            <div class="chip-list" ref="selectedVoice"></div>
-            <div class="label" style="margin-top:8px;">
-              提示：在"配音"模块点"生成并加入素材库"会自动设为配音轨。
+      <!-- 音频配置 -->
+      <div class="edit-section">
+        <div class="section-header">
+          <div class="section-title">
+            <svg class="section-icon" viewBox="0 0 24 24" fill="none">
+              <path d="M11 5L6 9H2v6h4l5 4V5zM19.07 4.93a10 10 0 010 14.14M15.54 8.46a5 5 0 010 7.07" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span>音频配置</span>
+          </div>
+        </div>
+        <div class="panel edit-panel">
+          <div class="edit-row">
+            <div class="edit-field">
+              <div class="field-label">配音</div>
+              <div class="chip-list" ref="selectedVoice"></div>
+              <div class="field-hint">
+                <svg class="hint-icon" viewBox="0 0 24 24" fill="none">
+                  <path d="M12 16v-4M12 8h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                  <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/>
+                </svg>
+                在"配音"模块生成并加入素材库会自动设为配音轨
+              </div>
             </div>
-
-            <div class="label" style="margin-top:12px;">BGM库选择（来自云素材库）</div>
-            <div class="chip-list" ref="selectedBgm"></div>
-            <div class="label" style="margin-top:8px;">
-              去"云素材库 → BGM库"点"添加到剪辑轨道"。
+            <div class="edit-field">
+              <div class="field-label">BGM</div>
+              <div class="chip-list" ref="selectedBgm"></div>
+              <div class="field-hint">
+                <svg class="hint-icon" viewBox="0 0 24 24" fill="none">
+                  <path d="M12 16v-4M12 8h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                  <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/>
+                </svg>
+                去"云素材库 → BGM库"点击"添加到剪辑轨道"
+              </div>
             </div>
           </div>
-          <div class="field">
-            <div class="label">BGM设置（演示）</div>
-            <div class="row">
-              <div class="field">
-                <div class="label">音量</div>
+          <div class="edit-row" style="margin-top:16px;padding-top:16px;border-top:1px solid #f0f0f0;">
+            <div class="edit-field">
+              <div class="field-label">BGM 音量</div>
+              <div class="range-wrapper">
                 <input 
                   v-model.number="editForm.bgmVolume" 
-                  class="input" 
+                  class="range-input" 
                   type="range" 
                   min="0" 
                   max="100"
                 />
-              </div>
-              <div class="field">
-                <div class="label">循环</div>
-                <select v-model="editForm.bgmLoop" class="select">
-                  <option value="auto">按视频长度截断</option>
-                  <option value="loop">循环（后端未实现）</option>
-                </select>
+                <span class="range-value">{{ editForm.bgmVolume }}%</span>
               </div>
             </div>
-            <div class="label">说明：当前后端剪辑仅支持"添加/不添加 BGM"。</div>
+            <div class="edit-field">
+              <div class="field-label">BGM 循环</div>
+              <select v-model="editForm.bgmLoop" class="select">
+                <option value="auto">按视频长度截断</option>
+                <option value="loop">循环（后端未实现）</option>
+              </select>
+            </div>
           </div>
         </div>
       </div>
 
-      <div class="panel" style="max-width:980px;margin:14px auto 0;">
-        <div class="row">
-          <div class="field">
-            <div class="label">输出设置（演示）</div>
-            <div class="row">
-              <div class="field">
-                <div class="label">分辨率</div>
-                <select v-model="editForm.resolution" class="select">
-                  <option value="auto">自动</option>
-                  <option value="1080p">1080p</option>
-                  <option value="720p">720p</option>
-                </select>
-              </div>
-              <div class="field">
-                <div class="label">视频比例</div>
-                <select v-model="editForm.ratio" class="select">
-                  <option value="auto">自动</option>
-                  <option value="16:9">16:9</option>
-                  <option value="9:16">9:16</option>
-                  <option value="1:1">1:1</option>
-                </select>
+      <!-- 输出设置 -->
+      <div class="edit-section">
+        <div class="section-header">
+          <div class="section-title">
+            <svg class="section-icon" viewBox="0 0 24 24" fill="none">
+              <path d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <rect x="2" y="6" width="20" height="12" rx="2" stroke="currentColor" stroke-width="2"/>
+            </svg>
+            <span>输出设置</span>
+          </div>
+        </div>
+        <div class="panel edit-panel">
+          <div class="edit-row">
+            <div class="edit-field">
+              <div class="field-label">分辨率</div>
+              <select v-model="editForm.resolution" class="select">
+                <option value="auto">自动</option>
+                <option value="1080p">1080p</option>
+                <option value="720p">720p</option>
+              </select>
+            </div>
+            <div class="edit-field">
+              <div class="field-label">视频比例</div>
+              <select v-model="editForm.ratio" class="select">
+                <option value="auto">自动</option>
+                <option value="16:9">16:9</option>
+                <option value="9:16">9:16</option>
+                <option value="1:1">1:1</option>
+              </select>
+            </div>
+            <div class="edit-field">
+              <div class="field-label">播放速度</div>
+              <select v-model.number="editForm.speed" class="select">
+                <option :value="1">1.0x</option>
+                <option :value="0.75">0.75x</option>
+                <option :value="1.25">1.25x</option>
+                <option :value="1.5">1.5x</option>
+                <option :value="2">2.0x</option>
+              </select>
+            </div>
+          </div>
+          <div class="edit-row" style="margin-top:16px;padding-top:16px;border-top:1px solid #f0f0f0;">
+            <div class="edit-field full-width">
+              <div class="field-label">字幕设置</div>
+              <div class="subtitle-options">
+                <label class="checkbox-label">
+                  <input 
+                    v-model="editForm.subtitleEnabled" 
+                    type="checkbox"
+                    class="checkbox-input"
+                  />
+                  <span class="checkbox-text">生成并烧录字幕（需要已选择配音音频）</span>
+                </label>
+                <div class="subtitle-actions">
+                  <button class="btn btn-secondary" @click="handleSubPreview" type="button">
+                    <svg class="btn-icon" viewBox="0 0 24 24" fill="none">
+                      <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                      <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    <span>生成字幕预览</span>
+                  </button>
+                  <a 
+                    v-if="subtitleUrl" 
+                    class="btn btn-secondary" 
+                    :href="subtitleUrl" 
+                    target="_blank"
+                  >
+                    <svg class="btn-icon" viewBox="0 0 24 24" fill="none">
+                      <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    <span>下载SRT</span>
+                  </a>
+                </div>
               </div>
             </div>
           </div>
-          <div class="field">
-            <div class="label">播放速度</div>
-            <select v-model.number="editForm.speed" class="select">
-              <option :value="1">1.0x</option>
-              <option :value="0.75">0.75x</option>
-              <option :value="1.25">1.25x</option>
-              <option :value="1.5">1.5x</option>
-              <option :value="2">2.0x</option>
-            </select>
-            <div class="label">说明：后端支持 0.5~2.0。</div>
-          </div>
         </div>
-        <div class="row" style="margin-top:10px;">
-          <div class="field">
-            <div class="label">字幕（跟配音同步）</div>
-            <label style="display:flex;align-items:center;gap:8px;">
-              <input 
-                v-model="editForm.subtitleEnabled" 
-                type="checkbox"
-              />
-              <span style="font-size:13px;color:#2c3e50;">
-                生成并烧录字幕（需要已选择配音音频作为 BGM）
-              </span>
-            </label>
-          </div>
-          <div class="field" style="display:flex;align-items:flex-end;gap:10px;">
-            <button class="btn" @click="handleSubPreview" type="button">
-              生成字幕预览
-            </button>
-            <a 
-              v-if="subtitleUrl" 
-              class="btn" 
-              :href="subtitleUrl" 
-              target="_blank"
+      </div>
+
+      <!-- 生成按钮和进度 -->
+      <div class="edit-section">
+        <div class="panel edit-panel generate-panel">
+          <div class="generate-content">
+            <button 
+              class="btn btn-generate" 
+              :class="{ loading: generateLoading }"
+              @click="handleGenerate"
+              :disabled="generateLoading"
             >
-              下载SRT
-            </a>
+              <svg v-if="!generateLoading" class="btn-icon" viewBox="0 0 24 24" fill="none">
+                <path d="M5 12h14M12 5l7 7-7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <span class="spinner" v-if="generateLoading"></span>
+              <span>{{ generateLoading ? '正在生成中...' : '一键生成AI剪辑视频' }}</span>
+            </button>
+            
+            <div class="progress-wrapper" v-if="progress.show">
+              <div class="progress-info">
+                <span class="progress-text">{{ progress.text || '处理中...' }}</span>
+                <span class="progress-percent">{{ Math.round(progress.value) }}%</span>
+              </div>
+              <div class="progress-bar">
+                <div class="progress-fill" :style="{ width: `${Math.min(100, Math.max(0, progress.value))}%` }"></div>
+              </div>
+            </div>
           </div>
-        </div>
-        <div style="display:flex;justify-content:center;margin-top:14px;">
-          <button 
-            class="btn orange" 
-            :class="{ loading: generateLoading }"
-            @click="handleGenerate"
-          >
-            <span class="spinner"></span>
-            <span>一键生成AI剪辑视频</span>
-          </button>
-        </div>
-        <div class="progress" :class="{ show: progress.show }">
-          <div class="bar" :style="{ width: `${progress.value}%` }"></div>
-        </div>
-        <div class="label" v-if="progress.text" style="margin-top:8px;">
-          {{ progress.text }}
         </div>
       </div>
 
@@ -756,7 +840,7 @@ function renderSelectedVideos() {
 
   const clips = props.timeline?.clips || []
   if (!clips.length) {
-    box.innerHTML = '<div class="label">尚未选择视频素材。去"云素材库 → 视频素材库"点击"添加到剪辑轨道"。</div>'
+    box.innerHTML = '<div class="empty-state"><svg class="empty-icon" viewBox="0 0 24 24" fill="none"><path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><div class="empty-text">尚未选择视频素材</div><div class="empty-hint">去"云素材库 → 视频素材库"点击"添加到剪辑轨道"来选择素材</div></div>'
     return
   }
 
@@ -1100,6 +1184,430 @@ onMounted(() => {
   border-color: rgba(22, 119, 255, 0.35);
   color: #1677ff;
   font-weight: 800;
+}
+
+/* 剪辑生成优化样式 */
+.edit-section {
+  max-width: 980px;
+  margin: 20px auto 0;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  font-weight: 800;
+  color: #2c3e50;
+}
+
+.section-icon {
+  width: 20px;
+  height: 20px;
+  color: #1677ff;
+}
+
+.section-hint {
+  font-size: 12px;
+  color: #8a94a3;
+}
+
+.edit-panel {
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.edit-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+}
+
+.edit-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.edit-field.full-width {
+  grid-column: 1 / -1;
+}
+
+.field-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #2c3e50;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.label-badge {
+  padding: 2px 8px;
+  background: rgba(22, 119, 255, 0.1);
+  color: #1677ff;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.field-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #8a94a3;
+  margin-top: 4px;
+  line-height: 1.4;
+}
+
+.hint-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: #1677ff;
+}
+
+.chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 32px;
+  padding: 8px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 1px dashed #e0e0e0;
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+  min-height: 120px;
+}
+
+.empty-icon {
+  width: 48px;
+  height: 48px;
+  color: #d0d0d0;
+  margin-bottom: 12px;
+}
+
+.empty-text {
+  font-size: 14px;
+  color: #8a94a3;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.empty-hint {
+  font-size: 12px;
+  color: #b0b0b0;
+  line-height: 1.5;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid #e0e0e0;
+  background: #fff;
+  border-radius: 8px;
+  font-size: 12px;
+  color: #2c3e50;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  transition: all 0.2s;
+}
+
+.chip:hover {
+  border-color: #1677ff;
+  box-shadow: 0 2px 6px rgba(22, 119, 255, 0.15);
+}
+
+.chip b {
+  font-weight: 800;
+  color: #1677ff;
+  padding: 2px 6px;
+  background: rgba(22, 119, 255, 0.1);
+  border-radius: 4px;
+}
+
+.chip-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.chip-btn {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: #8a94a3;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.2s;
+  width: 24px;
+  height: 24px;
+}
+
+.chip-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.chip-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: #1677ff;
+}
+
+.chip-btn-danger:hover {
+  background: rgba(220, 53, 69, 0.1);
+  color: #dc3545;
+}
+
+.upload-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border: 1px dashed #d0d0d0;
+  background: #fafafa;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 13px;
+  color: #2c3e50;
+}
+
+.upload-btn:hover {
+  border-color: #1677ff;
+  background: rgba(22, 119, 255, 0.05);
+  color: #1677ff;
+}
+
+.btn-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.btn-secondary {
+  border: 1px solid #e0e0e0;
+  background: #fff;
+  color: #2c3e50;
+  padding: 10px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-secondary:hover {
+  background: #f6f8fa;
+  border-color: #1677ff;
+  color: #1677ff;
+}
+
+.range-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.range-input {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: #e0e0e0;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.range-input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #1677ff;
+  cursor: pointer;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.range-input::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #1677ff;
+  cursor: pointer;
+  border: none;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.range-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1677ff;
+  min-width: 45px;
+  text-align: right;
+}
+
+.subtitle-options {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  flex: 1;
+}
+
+.checkbox-input {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: #1677ff;
+}
+
+.checkbox-text {
+  font-size: 13px;
+  color: #2c3e50;
+}
+
+.subtitle-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.generate-panel {
+  background: linear-gradient(135deg, rgba(22, 119, 255, 0.05), rgba(255, 122, 0, 0.05));
+  border-color: rgba(22, 119, 255, 0.2);
+}
+
+.generate-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.btn-generate {
+  background: linear-gradient(135deg, #ff7a00, #ff9500);
+  border: none;
+  color: #fff;
+  font-weight: 800;
+  padding: 14px 32px;
+  font-size: 16px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.3s;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  box-shadow: 0 4px 12px rgba(255, 122, 0, 0.3);
+  min-width: 200px;
+  justify-content: center;
+}
+
+.btn-generate:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(255, 122, 0, 0.4);
+}
+
+.btn-generate:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.btn-generate:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.progress-wrapper {
+  width: 100%;
+  max-width: 600px;
+}
+
+.progress-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.progress-text {
+  color: #2c3e50;
+  font-weight: 600;
+}
+
+.progress-percent {
+  color: #1677ff;
+  font-weight: 800;
+}
+
+.progress-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.06);
+  overflow: hidden;
+  position: relative;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #1677ff, #ff7a00);
+  border-radius: 999px;
+  transition: width 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.progress-fill::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
 }
 </style>
 

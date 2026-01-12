@@ -412,9 +412,17 @@ async function loadMaterials() {
   try {
     const response = await materialApi.getMaterials({ type: null })
     if (response.code === 200) {
-      materials.value = response.data.materials || []
+      // 后端返回的 data 直接是数组，不是 { materials: [...] }
+      materials.value = Array.isArray(response.data) ? response.data : (response.data?.materials || [])
+      console.log('[VideoLibrary] 加载素材成功:', {
+        total: materials.value.length,
+        videos: materials.value.filter(m => m.type === 'video').length,
+        audios: materials.value.filter(m => m.type === 'audio').length,
+        all: materials.value
+      })
     }
   } catch (error) {
+    console.error('[VideoLibrary] 加载素材失败:', error)
     showToast(`加载素材失败：${error.message || '未知错误'}`, 'error')
   }
 }
@@ -432,6 +440,7 @@ async function loadOutputs() {
 
 async function bootstrapData() {
   await Promise.all([loadMaterials(), loadOutputs()])
+  await nextTick()
   renderCloud()
 }
 
@@ -448,7 +457,24 @@ function renderCloud() {
   if (tab === 'videos') {
     items = materials.value.filter(m => m.type === 'video')
   } else if (tab === 'bgm') {
-    items = materials.value.filter(m => m.type === 'audio')
+    // 调试：打印所有素材的类型
+    console.log('[VideoLibrary] 所有素材详情:', materials.value.map(m => ({
+      id: m.id,
+      name: m.name,
+      type: m.type,
+      typeValue: typeof m.type,
+      path: m.path
+    })))
+    items = materials.value.filter(m => {
+      const type = (m.type || '').toLowerCase()
+      return type === 'audio'
+    })
+    console.log('[VideoLibrary] BGM库筛选:', {
+      totalMaterials: materials.value.length,
+      audioMaterials: materials.value.filter(m => (m.type || '').toLowerCase() === 'audio'),
+      filteredItems: items,
+      allTypes: [...new Set(materials.value.map(m => (m.type || '').toLowerCase()))]
+    })
   } else {
     items = outputs.value
   }
@@ -462,7 +488,15 @@ function renderCloud() {
   }
 
   if (!items.length) {
-    grid.innerHTML = '<div class="label">暂无数据</div>'
+    let emptyMessage = '暂无数据'
+    if (tab === 'bgm') {
+      emptyMessage = '暂无音频素材（BGM）<br><small style="color:#8a94a3;margin-top:8px;display:block;">请点击"上传素材"按钮上传音频文件（.mp3, .wav, .flac）</small>'
+    } else if (tab === 'videos') {
+      emptyMessage = '暂无视频素材<br><small style="color:#8a94a3;margin-top:8px;display:block;">请点击"上传素材"按钮上传视频文件（.mp4, .avi, .mov）</small>'
+    } else if (tab === 'outputs') {
+      emptyMessage = '暂无成品视频<br><small style="color:#8a94a3;margin-top:8px;display:block;">完成视频剪辑后，成品会显示在这里</small>'
+    }
+    grid.innerHTML = `<div class="label" style="text-align:center;padding:40px 20px;color:#8a94a3;">${emptyMessage}</div>`
     return
   }
 
@@ -498,7 +532,7 @@ function renderMaterialCard(m) {
       <div class="card-title">${escapeHtml(m.name || filename)}</div>
       <div class="card-meta">
         <div>存储：${escapeHtml(filename)}</div>
-        <div>上传：${escapeHtml(m.created_at ? new Date(m.created_at).toLocaleString() : '-')}</div>
+        <div>上传：${escapeHtml((m.created_at || m.create_time) ? new Date(m.created_at || m.create_time).toLocaleString() : '-')}</div>
         <div>时长：<span data-meta="duration">-</span></div>
         <div>分辨率：<span data-meta="resolution">-</span></div>
       </div>
@@ -727,15 +761,43 @@ async function handleUpload(e) {
   if (!file) return
 
   try {
+    const fileName = file.name
+    const fileExt = fileName.split('.').pop()?.toLowerCase()
+    const isAudio = ['.mp3', '.wav', '.flac'].includes('.' + fileExt)
+    const isVideo = ['.mp4', '.avi', '.mov'].includes('.' + fileExt)
+    
+    console.log('[VideoLibrary] 上传文件:', {
+      fileName,
+      fileExt,
+      isAudio,
+      isVideo,
+      fileType: file.type
+    })
+    
     showToast('正在上传…')
     const response = await materialApi.uploadMaterial(file)
+    console.log('[VideoLibrary] 上传响应:', response)
+    
     if (response.code === 200) {
+      const uploadedType = response.data?.type
+      console.log('[VideoLibrary] 上传成功，素材类型:', uploadedType)
       showToast('上传成功，已刷新素材库')
+      
+      // 如果是音频文件，自动切换到 BGM 库
+      if (uploadedType === 'audio') {
+        setCloudTab('bgm')
+      }
+      
       await bootstrapData()
+      
+      // 确保渲染
+      await nextTick()
+      renderCloud()
     } else {
       showToast(`上传失败：${response.message || '未知错误'}`, 'error', 3500)
     }
   } catch (error) {
+    console.error('[VideoLibrary] 上传异常:', error)
     showToast(`上传失败：${error.message}`, 'error', 3500)
   } finally {
     e.target.value = ''

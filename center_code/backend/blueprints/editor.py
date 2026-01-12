@@ -65,7 +65,16 @@ def _run_edit_task(
                 db.commit()
         
         # 执行剪辑
-        output_path = video_editor.edit(video_paths, voice_path, bgm_path, speed, subtitle_path)
+        logger.info(f"Task {task_id}: Starting video edit with {len(video_paths)} videos")
+        logger.info(f"Task {task_id}: voice_path={voice_path}, bgm_path={bgm_path}, speed={speed}, subtitle_path={subtitle_path}")
+        
+        output_path = None
+        edit_error = None
+        try:
+            output_path = video_editor.edit(video_paths, voice_path, bgm_path, speed, subtitle_path)
+        except Exception as edit_ex:
+            edit_error = str(edit_ex)
+            logger.exception(f"Task {task_id}: Video edit failed with exception")
         
         with get_db() as db:
             task = db.query(VideoEditTask).filter(VideoEditTask.id == task_id).first()
@@ -75,7 +84,14 @@ def _run_edit_task(
             task.progress = 90
             task.updated_at = datetime.datetime.now()
             
-            if output_path and os.path.exists(output_path):
+            if edit_error:
+                # 剪辑过程中出现异常
+                task.status = "fail"
+                task.progress = 100
+                task.error_message = f"剪辑失败：{edit_error}"
+                logger.error(f"Task {task_id}: Edit failed with error: {edit_error}")
+            elif output_path and os.path.exists(output_path):
+                # 剪辑成功
                 output_filename = os.path.basename(output_path)
                 relative_output_path = os.path.relpath(output_path, BASE_DIR).replace(os.sep, "/")
                 uploads_rel = os.path.relpath(output_path, os.path.join(BASE_DIR, 'uploads')).replace(os.sep, '/')
@@ -87,10 +103,16 @@ def _run_edit_task(
                 task.preview_url = preview_url
                 task.progress = 100
                 task.error_message = None
+                logger.info(f"Task {task_id}: Edit succeeded, output: {output_path}")
             else:
+                # 未生成输出文件
                 task.status = "fail"
                 task.progress = 100
-                task.error_message = "未生成输出文件"
+                error_msg = "未生成输出文件"
+                if output_path:
+                    error_msg += f"（预期路径：{output_path}）"
+                task.error_message = error_msg
+                logger.error(f"Task {task_id}: No output file generated. Expected: {output_path}")
             
             task.updated_at = datetime.datetime.now()
             db.commit()
@@ -616,51 +638,99 @@ def list_outputs():
         items = []
 
         # 优先：从任务表读取成功成品
+        # 注意：必须在 with 块内提取所有需要的数据，避免 DetachedInstanceError
+        task_data = []
         with get_db() as db:
             tasks = db.query(VideoEditTask).filter(
                 VideoEditTask.status == "success",
                 VideoEditTask.output_filename.isnot(None),
                 VideoEditTask.output_filename != ""
             ).order_by(VideoEditTask.updated_at.desc()).limit(200).all()
-
-        seen = set()
-        for task in tasks:
-            filename = task.output_filename
-            if not filename or filename in seen:
-                continue
-            abs_path = os.path.join(OUTPUT_VIDEO_DIR, filename)
-            if not os.path.isfile(abs_path):
-                continue
-            stat = os.stat(abs_path)
-            seen.add(filename)
-            items.append({
-                "filename": filename,
-                "size": stat.st_size,
-                "update_time": (task.updated_at or datetime.datetime.fromtimestamp(stat.st_mtime)).strftime("%Y-%m-%d %H:%M:%S"),
-                "preview_url": task.preview_url or f"/uploads/videos/{filename}",
-                "download_url": f"/api/download/video/{filename}",
-                "task_id": task.id,
-            })
-
-        # 兜底：扫目录补齐未入库成品
-        if os.path.isdir(OUTPUT_VIDEO_DIR):
-            for name in os.listdir(OUTPUT_VIDEO_DIR):
-                if name in seen:
+            
+            # 在会话内提取所有需要的数据
+            for task in tasks:
+                try:
+                    filename = task.output_filename
+                    if not filename:
+                        continue
+                    
+                    # 提取所有需要的属性（在会话内）
+                    task_data.append({
+                        'id': task.id,
+                        'filename': filename,
+                        'preview_url': task.preview_url,
+                        'updated_at': task.updated_at,
+                    })
+                except Exception as e:
+                    logger.warning(f"提取任务数据时出错：{e}")
                     continue
-                abs_path = os.path.join(OUTPUT_VIDEO_DIR, name)
+
+        # 在会话外处理文件系统操作
+        seen = set()
+        for task_info in task_data:
+            try:
+                filename = task_info['filename']
+                if filename in seen:
+                    continue
+                    
+                abs_path = os.path.join(OUTPUT_VIDEO_DIR, filename)
                 if not os.path.isfile(abs_path):
                     continue
+                    
                 stat = os.stat(abs_path)
+                seen.add(filename)
+                
+                # 处理时间格式
+                update_time_str = ""
+                if task_info['updated_at']:
+                    if isinstance(task_info['updated_at'], datetime.datetime):
+                        update_time_str = task_info['updated_at'].strftime("%Y-%m-%d %H:%M:%S")
+                    else:
+                        update_time_str = str(task_info['updated_at'])
+                else:
+                    update_time_str = datetime.datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+                
                 items.append({
-                    "filename": name,
+                    "filename": filename,
                     "size": stat.st_size,
-                    "update_time": datetime.datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
-                    "preview_url": f"/uploads/videos/{name}",
-                    "download_url": f"/api/download/video/{name}",
+                    "update_time": update_time_str,
+                    "preview_url": task_info['preview_url'] or f"/uploads/videos/{filename}",
+                    "download_url": f"/api/download/video/{filename}",
+                    "task_id": task_info['id'],
                 })
+            except Exception as task_error:
+                logger.warning(f"处理任务 {task_info.get('id', 'unknown')} 的成品时出错：{task_error}")
+                continue
+
+        # 兜底：扫目录补齐未入库成品
+        try:
+            if os.path.isdir(OUTPUT_VIDEO_DIR):
+                for name in os.listdir(OUTPUT_VIDEO_DIR):
+                    if name in seen:
+                        continue
+                    abs_path = os.path.join(OUTPUT_VIDEO_DIR, name)
+                    if not os.path.isfile(abs_path):
+                        continue
+                    try:
+                        stat = os.stat(abs_path)
+                        items.append({
+                            "filename": name,
+                            "size": stat.st_size,
+                            "update_time": datetime.datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
+                            "preview_url": f"/uploads/videos/{name}",
+                            "download_url": f"/api/download/video/{name}",
+                        })
+                    except Exception as file_error:
+                        logger.warning(f"处理文件 {name} 时出错：{file_error}")
+                        continue
+        except Exception as dir_error:
+            logger.warning(f"扫描目录时出错：{dir_error}")
 
         # 按更新时间排序
-        items.sort(key=lambda x: x.get("update_time") or "", reverse=True)
+        try:
+            items.sort(key=lambda x: x.get("update_time") or "", reverse=True)
+        except Exception as sort_error:
+            logger.warning(f"排序时出错：{sort_error}")
         
         return response_success(items, "获取成品列表成功")
     

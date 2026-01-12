@@ -83,6 +83,9 @@ def upload_material():
         file_type = None
         save_dir = None
         
+        # 提取文件扩展名用于调试
+        ext = os.path.splitext(filename)[-1].lower()
+        
         if allowed_file(filename, 'video'):
             file_type = 'video'
             save_dir = MATERIAL_VIDEO_DIR
@@ -90,7 +93,15 @@ def upload_material():
             file_type = 'audio'
             save_dir = MATERIAL_AUDIO_DIR
         else:
-            return response_error('不支持的文件类型，仅支持视频(mp4/avi/mov)、音频(mp3/wav/flac)', 400)
+            return response_error(
+                f'不支持的文件类型（扩展名: {ext}），仅支持视频(mp4/avi/mov)、音频(mp3/wav/flac)', 
+                400
+            )
+        
+        # 调试日志
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f'上传文件: {filename}, 扩展名: {ext}, 类型: {file_type}, 目录: {save_dir}')
         
         # 生成唯一文件名
         ext = os.path.splitext(filename)[-1].lower()
@@ -199,16 +210,19 @@ def get_materials():
             
             materials_list = []
             for mat in materials:
+                # 确保 type 字段是小写，统一格式
+                material_type = (mat.type or '').lower() if mat.type else None
                 materials_list.append({
                     'id': mat.id,
                     'name': mat.name,
                     'path': mat.path,
-                    'type': mat.type,
+                    'type': material_type,  # 统一转换为小写
                     'duration': mat.duration,
                     'width': mat.width,
                     'height': mat.height,
                     'size': mat.size,
-                    'create_time': mat.created_at.isoformat() if mat.created_at else None
+                    'created_at': mat.created_at.isoformat() if mat.created_at else None,
+                    'create_time': mat.created_at.isoformat() if mat.created_at else None  # 兼容字段
                 })
         
         return response_success(materials_list, '获取素材列表成功')

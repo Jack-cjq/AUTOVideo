@@ -52,3 +52,12 @@ BAIDU_API_KEY = os.environ.get("BAIDU_API_KEY", "TTI6soTvhgaKdXATP7SYZWVp")
 BAIDU_SECRET_KEY = os.environ.get("BAIDU_SECRET_KEY", "JksQ0PA545ChX9uzdtGPhPSVpvkvQu3I")
 # 客户端唯一标识：可用机器名/UUID，留空则后端自动生成
 BAIDU_CUID = os.environ.get("BAIDU_CUID", "")
+
+# =========================
+# FFmpeg 配置
+# =========================
+# FFmpeg 可执行文件路径（如果不在系统 PATH 中）
+# 可以通过环境变量 FFMPEG_PATH 设置，例如：
+# Windows: set FFMPEG_PATH=D:\软件\ffmpeg\bin\ffmpeg.exe
+# 或者直接在这里设置：
+FFMPEG_PATH = os.environ.get("FFMPEG_PATH", r"D:\ffmpeg\bin\ffmpeg.exe")

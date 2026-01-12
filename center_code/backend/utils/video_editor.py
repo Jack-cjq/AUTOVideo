@@ -52,6 +52,57 @@ class VideoEditor:
         except ImportError:
             raise RuntimeError("未安装 ffmpeg-python，请先 pip install ffmpeg-python")
         
+        # 检查 FFmpeg 是否可用
+        try:
+            import shutil
+            
+            # 优先检查环境变量或配置文件指定的 FFmpeg 路径
+            try:
+                from config import FFMPEG_PATH as config_ffmpeg_path
+                ffmpeg_path = os.environ.get('FFMPEG_PATH') or config_ffmpeg_path
+            except ImportError:
+                ffmpeg_path = os.environ.get('FFMPEG_PATH')
+            if ffmpeg_path and os.path.exists(ffmpeg_path):
+                # 设置 ffmpeg-python 使用指定的路径
+                import ffmpeg
+                ffmpeg_path = os.path.abspath(ffmpeg_path)
+                # 将 FFmpeg 目录添加到 PATH（仅当前进程）
+                ffmpeg_dir = os.path.dirname(ffmpeg_path)
+                if ffmpeg_dir not in os.environ.get('PATH', ''):
+                    os.environ['PATH'] = ffmpeg_dir + os.pathsep + os.environ.get('PATH', '')
+                print(f"[VideoEditor] 使用环境变量指定的 FFmpeg：{ffmpeg_path}")
+            else:
+                # 尝试从系统 PATH 中查找
+                ffmpeg_path = shutil.which('ffmpeg')
+                if not ffmpeg_path:
+                    # 尝试常见的安装路径
+                    common_paths = [
+                        r'D:\ffmpeg\bin\ffmpeg.exe',
+                        r'C:\ffmpeg\bin\ffmpeg.exe',
+                        r'C:\Program Files\ffmpeg\bin\ffmpeg.exe',
+                        r'C:\Program Files (x86)\ffmpeg\bin\ffmpeg.exe',
+                    ]
+                    for path in common_paths:
+                        if os.path.exists(path):
+                            ffmpeg_path = path
+                            ffmpeg_dir = os.path.dirname(ffmpeg_path)
+                            if ffmpeg_dir not in os.environ.get('PATH', ''):
+                                os.environ['PATH'] = ffmpeg_dir + os.pathsep + os.environ.get('PATH', '')
+                            print(f"[VideoEditor] 找到 FFmpeg：{ffmpeg_path}")
+                            break
+                    
+                    if not ffmpeg_path:
+                        raise RuntimeError(
+                            "未找到 FFmpeg 可执行文件。\n"
+                            "解决方案：\n"
+                            "1. 将 FFmpeg 的 bin 目录添加到系统 PATH 环境变量\n"
+                            "2. 或设置环境变量 FFMPEG_PATH 指向 ffmpeg.exe 的完整路径\n"
+                            "   例如：set FFMPEG_PATH=D:\\软件\\ffmpeg-8.0.1\\bin\\ffmpeg.exe\n"
+                            "3. 重启后端服务后重试"
+                        )
+        except Exception as e:
+            raise RuntimeError(f"检查 FFmpeg 时出错：{str(e)}")
+        
         # 输出目录
         OUTPUT_VIDEO_DIR = os.path.join(BASE_DIR, 'uploads', 'videos')
         if not os.path.exists(OUTPUT_VIDEO_DIR):
@@ -138,25 +189,56 @@ class VideoEditor:
                 stream = ffmpeg.output(v_stream, output_path, vcodec="libx264", **({"vf": vf} if vf else {}))
 
             # 执行命令
-            ffmpeg.run(stream, overwrite_output=True, quiet=True)
+            print(f"[VideoEditor] 开始执行 FFmpeg 命令，输出文件：{output_path}")
+            print(f"[VideoEditor] 视频路径：{video_paths}")
+            print(f"[VideoEditor] 配音路径：{voice_path}")
+            print(f"[VideoEditor] BGM路径：{bgm_path}")
+            print(f"[VideoEditor] 字幕路径：{subtitle_path}")
+            print(f"[VideoEditor] 播放速度：{speed}")
+            
+            try:
+                # 执行 FFmpeg 命令
+                ffmpeg.run(stream, overwrite_output=True, quiet=True)
+            except ffmpeg.Error as ffmpeg_error:
+                # 捕获 FFmpeg 错误
+                stderr_msg = ""
+                if hasattr(ffmpeg_error, 'stderr') and ffmpeg_error.stderr:
+                    try:
+                        stderr_msg = ffmpeg_error.stderr.decode('utf-8', errors='ignore')
+                    except:
+                        stderr_msg = str(ffmpeg_error.stderr)
+                error_msg = f"FFmpeg 执行失败：{stderr_msg or str(ffmpeg_error)}"
+                print(f"[VideoEditor] {error_msg}")
+                raise RuntimeError(error_msg)
+            except Exception as ffmpeg_ex:
+                # 捕获其他异常
+                error_msg = f"FFmpeg 执行异常：{str(ffmpeg_ex)}"
+                print(f"[VideoEditor] {error_msg}")
+                raise RuntimeError(error_msg)
 
             # 4. 清理临时文件
             safe_remove(concat_file)
 
             # 验证成品是否存在
             if os.path.exists(output_path):
+                file_size = os.path.getsize(output_path)
+                print(f"[VideoEditor] 剪辑成功，输出文件：{output_path}，大小：{file_size} 字节")
                 return output_path
-            return None
+            else:
+                print(f"[VideoEditor] 警告：输出文件不存在：{output_path}")
+                return None
 
         except Exception as e:
-            print(f"剪辑失败：{e}")
+            error_msg = f"剪辑失败：{e}"
+            print(f"[VideoEditor] {error_msg}")
             import traceback
             traceback.print_exc()
             # 清理临时文件/失败文件
             if 'concat_file' in locals():
                 safe_remove(concat_file)
-            safe_remove(output_path)
-            return None
+            if 'output_path' in locals() and os.path.exists(output_path):
+                safe_remove(output_path)
+            raise  # 重新抛出异常，让调用者处理
 
 
 # 单例实例
