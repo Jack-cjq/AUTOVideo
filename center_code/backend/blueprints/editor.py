@@ -7,6 +7,7 @@ import threading
 import time
 import datetime
 import logging
+from typing import Optional
 
 from flask import Blueprint, request, send_from_directory
 
@@ -36,10 +37,10 @@ _TASK_LOCK = threading.Lock()
 def _run_edit_task(
     task_id: int,
     video_paths: list,
-    voice_path: str | None,
-    bgm_path: str | None,
+    voice_path: Optional[str],
+    bgm_path: Optional[str],
     speed: float,
-    subtitle_path: str | None = None,
+    subtitle_path: Optional[str] = None,
 ):
     """在后台线程中执行剪辑任务"""
     try:

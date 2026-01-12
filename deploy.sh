@@ -209,7 +209,29 @@ read -p "是否要初始化数据库？(y/n) " -n 1 -r
 echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
     info "加载环境变量..."
-    export $(cat $BACKEND_DIR/.env | grep -v '^#' | xargs)
+    # 使用更安全的方式加载环境变量
+    set -a
+    source $BACKEND_DIR/.env 2>/dev/null || {
+        # 如果 source 失败，使用 export 方式（兼容性更好）
+        while IFS='=' read -r key value; do
+            # 跳过注释和空行
+            [[ $key =~ ^#.*$ ]] && continue
+            [[ -z "$key" ]] && continue
+            # 移除可能的引号
+            value=$(echo "$value" | sed "s/^['\"]//; s/['\"]$//")
+            export "$key=$value"
+        done < <(grep -v '^#' $BACKEND_DIR/.env | grep -v '^$')
+    }
+    set +a
+    
+    # 验证关键配置
+    if [ -z "$DB_USER" ] || [[ "$DB_USER" == *"@"* ]]; then
+        error "DB_USER 配置错误: ${DB_USER:-未设置}"
+        error "DB_USER 应该只是用户名，不包含 @ 符号"
+        error "请检查 $BACKEND_DIR/.env 文件"
+        warn "可以使用以下命令修复: ./fix_db_config.sh"
+        exit 1
+    fi
     
     info "初始化数据库表..."
     python init_database.py || warn "数据库初始化可能失败，请检查配置"

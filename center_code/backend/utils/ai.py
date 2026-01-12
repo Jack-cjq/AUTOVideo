@@ -3,7 +3,7 @@ AI 文案生成工具（DeepSeek）
 """
 import json
 import os
-from typing import Any
+from typing import Any, Optional, Dict
 
 # 导入配置
 import sys
@@ -31,8 +31,8 @@ def deepseek_generate_copies(
     keywords: str = "",
     reference: str = "",
     count: int = 3,
-    model: str | None = None,
-) -> dict[str, Any]:
+    model: Optional[str] = None,
+) -> Dict[str, Any]:
     """
     返回结构：
     {
@@ -83,7 +83,7 @@ def deepseek_generate_copies(
         schema=json.dumps(schema_hint, ensure_ascii=False)
     )
 
-    kwargs: dict[str, Any] = {
+    kwargs: Dict[str, Any] = {
         "model": model_name,
         "messages": [
             {"role": "system", "content": system},

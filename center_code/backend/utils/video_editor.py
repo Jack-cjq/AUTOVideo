@@ -4,6 +4,7 @@
 """
 import os
 import sys
+from typing import Optional, List
 
 # 导入配置
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -28,10 +29,10 @@ class VideoEditor:
     @staticmethod
     def edit(
         video_paths,
-        voice_path: str | None,
-        bgm_path: str | None,
+        voice_path: Optional[str],
+        bgm_path: Optional[str],
         speed=1.0,
-        subtitle_path: str | None = None,
+        subtitle_path: Optional[str] = None,
         bgm_volume: float = 0.25,
         voice_volume: float = 1.0,
     ):
@@ -127,7 +128,7 @@ class VideoEditor:
             v_in = ffmpeg.input(concat_file, format="concat", safe=0)
 
             # 视频滤镜链（用 -vf，避免 filter_complex 下 Windows 字幕路径转义坑）
-            vf_parts: list[str] = []
+            vf_parts: List[str] = []
 
             # 调速：setpts=1/speed*PTS
             try:

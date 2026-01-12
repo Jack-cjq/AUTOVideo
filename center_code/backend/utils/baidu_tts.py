@@ -5,7 +5,7 @@ import json
 import threading
 import time
 import uuid
-from typing import Any
+from typing import Any, Union, Dict
 
 import requests
 
@@ -17,7 +17,7 @@ from config import BAIDU_API_KEY, BAIDU_SECRET_KEY, BAIDU_CUID
 
 
 _TOKEN_LOCK = threading.Lock()
-_TOKEN_CACHE: dict[str, Any] = {"token": None, "expire_at": 0.0}
+_TOKEN_CACHE: Dict[str, Any] = {"token": None, "expire_at": 0.0}
 
 
 def _require_baidu_credentials():
@@ -61,7 +61,7 @@ def _get_access_token() -> str:
 def synthesize_speech(
     *,
     text: str,
-    voice: str | int = 0,
+    voice: Union[str, int] = 0,
     speed: int = 5,
     pitch: int = 5,
     volume: int = 5,

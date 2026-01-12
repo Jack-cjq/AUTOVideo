@@ -4,6 +4,7 @@
 import re
 import uuid
 from dataclasses import dataclass
+from typing import List
 
 
 _SPLIT_RE = re.compile(r"[\r\n]+|[。！？!?；;]+")
@@ -13,7 +14,7 @@ def _clean_text(text: str) -> str:
     return re.sub(r"\s+", " ", (text or "").strip())
 
 
-def split_into_sentences(text: str) -> list[str]:
+def split_into_sentences(text: str) -> List[str]:
     text = (text or "").strip()
     if not text:
         return []
@@ -53,7 +54,7 @@ def generate_srt_items(
     total_duration_sec: float,
     min_item_sec: float = 0.9,
     max_item_sec: float = 6.0,
-) -> list[SrtItem]:
+) -> List[SrtItem]:
     total_duration_sec = float(total_duration_sec)
     if total_duration_sec <= 0:
         raise ValueError("total_duration_sec must be positive")
@@ -77,7 +78,7 @@ def generate_srt_items(
     durs = [d * scale for d in durs]
 
     # Build items
-    items: list[SrtItem] = []
+    items: List[SrtItem] = []
     t = 0.0
     for i, (s, d) in enumerate(zip(sentences, durs), start=1):
         start = t
@@ -93,8 +94,8 @@ def generate_srt_items(
     return items
 
 
-def render_srt(items: list[SrtItem]) -> str:
-    lines: list[str] = []
+def render_srt(items: List[SrtItem]) -> str:
+    lines: List[str] = []
     for it in items:
         lines.append(str(it.index))
         lines.append(f"{format_srt_time(it.start)} --> {format_srt_time(it.end)}")
