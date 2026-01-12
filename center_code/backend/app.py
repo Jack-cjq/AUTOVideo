@@ -69,11 +69,23 @@ app.config['PERMANENT_SESSION_LIFETIME'] = 86400  # 24小时（秒）
 
 # 检查是否为生产环境（通过环境变量判断）
 is_production = os.getenv('FLASK_ENV') == 'production' or os.getenv('ENVIRONMENT') == 'production'
+
+# 检查是否使用 HTTPS
+# 优先使用环境变量，如果没有设置，默认使用 HTTP（适用于通过 Nginx 反向代理的 HTTP）
+use_https = os.getenv('USE_HTTPS', '').lower() == 'true'
+
 if is_production:
-    # 生产环境启用安全 cookie（需要 HTTPS）
-    app.config['SESSION_COOKIE_SECURE'] = True
-    # 生产环境建议使用更严格的 SameSite 策略
-    # app.config['SESSION_COOKIE_SAMESITE'] = 'Strict'  # 更严格，但可能影响跨站请求
+    # 只有在明确使用 HTTPS 时才启用 SESSION_COOKIE_SECURE
+    # 如果使用 HTTP 或通过 Nginx 反向代理（未配置 SSL），不要启用
+    if use_https:
+        app.config['SESSION_COOKIE_SECURE'] = True
+        # 生产环境建议使用更严格的 SameSite 策略
+        # app.config['SESSION_COOKIE_SAMESITE'] = 'Strict'  # 更严格，但可能影响跨站请求
+    else:
+        # HTTP 环境不启用 Secure，否则 Cookie 无法工作
+        app.config['SESSION_COOKIE_SECURE'] = False
+        # 保持 SameSite=Lax 以允许正常的跨站导航
+        app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 
 # 配置 CORS，允许携带凭证
 # 开发环境允许所有 localhost 和 127.0.0.1 的端口
@@ -83,7 +95,10 @@ cors_origins = [
 ]
 # 如果环境变量设置了允许的源，则使用环境变量
 if os.getenv('CORS_ORIGINS'):
-    cors_origins = os.getenv('CORS_ORIGINS').split(',')
+    cors_origins = [origin.strip() for origin in os.getenv('CORS_ORIGINS').split(',') if origin.strip()]
+# 生产环境：如果没有设置 CORS_ORIGINS，允许所有来源（通过 Nginx 代理时）
+elif is_production:
+    cors_origins = ['*']  # 生产环境通过 Nginx 代理，允许所有来源
 
 CORS(app, 
      supports_credentials=True,
