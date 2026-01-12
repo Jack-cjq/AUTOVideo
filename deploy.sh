@@ -52,13 +52,27 @@ check_command() {
 # 步骤 1: 检查系统环境
 info "检查系统环境..."
 
-if ! check_command python3; then
-    error "Python3 未安装，请先安装 Python 3.9+"
+# 优先使用 python3.9，如果不存在则使用 python3
+if check_command python3.9; then
+    PYTHON_CMD="python3.9"
+    PYTHON_VERSION=$(python3.9 --version | cut -d' ' -f2)
+    info "检测到 Python 3.9: $PYTHON_VERSION"
+elif check_command python3; then
+    PYTHON_CMD="python3"
+    PYTHON_VERSION=$(python3 --version | cut -d' ' -f2)
+    info "Python 版本: $PYTHON_VERSION"
+    
+    # 检查版本是否满足要求（>= 3.8）
+    MAJOR=$(echo $PYTHON_VERSION | cut -d'.' -f1)
+    MINOR=$(echo $PYTHON_VERSION | cut -d'.' -f2)
+    if [ "$MAJOR" -lt 3 ] || ([ "$MAJOR" -eq 3 ] && [ "$MINOR" -lt 8 ]); then
+        error "Python 版本过低，需要 Python 3.8+，当前版本: $PYTHON_VERSION"
+        exit 1
+    fi
+else
+    error "Python3 未安装，请先安装 Python 3.8+"
     exit 1
 fi
-
-PYTHON_VERSION=$(python3 --version | cut -d' ' -f2 | cut -d'.' -f1,2)
-info "Python 版本: $(python3 --version)"
 
 if ! check_command node; then
     warn "Node.js 未安装，将尝试安装..."
@@ -116,8 +130,8 @@ info "配置 Python 虚拟环境..."
 cd $BACKEND_DIR
 
 if [ ! -d "venv" ]; then
-    info "创建虚拟环境..."
-    python3 -m venv venv
+    info "创建虚拟环境（使用 $PYTHON_CMD）..."
+    $PYTHON_CMD -m venv venv
 fi
 
 info "激活虚拟环境并升级 pip..."
@@ -142,7 +156,7 @@ if [ ! -f "$BACKEND_DIR/.env" ]; then
     warn ".env 文件不存在，创建示例文件..."
     
     # 生成 Secret Key
-    SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+    SECRET_KEY=$($PYTHON_CMD -c "import secrets; print(secrets.token_hex(32))")
     
     cat > $BACKEND_DIR/.env << EOF
 # Flask 环境
