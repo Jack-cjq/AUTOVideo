@@ -16,7 +16,7 @@ MYSQL_CONFIG = {
     'port': int(os.getenv('DB_PORT', 3306)),
     'database': os.getenv('DB_NAME', 'autovideo'),
     'user': os.getenv('DB_USER', 'root'),
-    'password': os.getenv('DB_PASSWORD', 'Yjy793784546'),  # ⚠️ 请设置你的 MySQL 密码
+    'password': os.getenv('DB_PASSWORD', '123456'),  # ⚠️ 请设置你的 MySQL 密码
     'charset': 'utf8mb4'
 }
 
@@ -34,3 +34,21 @@ def get_db_url():
     """获取数据库连接URL"""
     config = get_db_config()
     return f"mysql+pymysql://{config['user']}:{config['password']}@{config['host']}:{config['port']}/{config['database']}?charset={config['charset']}"
+
+
+# =========================
+# AI (DeepSeek/OpenAI-compatible)
+# =========================
+# 通过环境变量注入密钥，避免写入代码库
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "sk-84f80df638414e4e89f60a3507d356f1")
+DEEPSEEK_BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
+
+# =========================
+# TTS (Baidu Intelligent Cloud)
+# =========================
+BAIDU_APP_ID = os.environ.get("BAIDU_APP_ID", "7396532")
+BAIDU_API_KEY = os.environ.get("BAIDU_API_KEY", "TTI6soTvhgaKdXATP7SYZWVp")
+BAIDU_SECRET_KEY = os.environ.get("BAIDU_SECRET_KEY", "JksQ0PA545ChX9uzdtGPhPSVpvkvQu3I")
+# 客户端唯一标识：可用机器名/UUID，留空则后端自动生成
+BAIDU_CUID = os.environ.get("BAIDU_CUID", "")

@@ -53,7 +53,7 @@ const routes = [
       {
         path: 'video-editor',
         name: 'VideoEditor',
-        component: () => import('../views/VideoEditor.vue'),
+        component: () => import('../views/VideoLibrary.vue'),
         meta: { requiresAuth: true, title: 'AI视频剪辑' }
       }
     ]

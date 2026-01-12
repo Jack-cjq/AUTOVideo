@@ -1,7 +1,7 @@
 """
 数据模型定义
 """
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Index, Text
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Index, Text, Float, REAL
 from sqlalchemy.orm import declarative_base
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -211,6 +211,44 @@ class AccountStats(Base):
     created_at = Column(DateTime, default=lambda: __import__('datetime').datetime.now())
 
 
+class Material(Base):
+    """素材表（视频/音频素材）"""
+    __tablename__ = 'materials'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(255), nullable=False)  # 文件名
+    path = Column(String(500), nullable=False)  # 存储路径（相对路径），缩短长度避免索引过长，唯一性由应用层保证
+    type = Column(String(50), nullable=False)  # video/audio
+    duration = Column(REAL)  # 时长（秒），使用 REAL 支持小数
+    width = Column(Integer)  # 宽（视频）
+    height = Column(Integer)  # 高（视频）
+    size = Column(Integer)  # 文件大小（字节）
+    created_at = Column(DateTime, default=lambda: __import__('datetime').datetime.now())
+    updated_at = Column(DateTime, default=lambda: __import__('datetime').datetime.now(),
+                       onupdate=lambda: __import__('datetime').datetime.now())
+
+
+class VideoEditTask(Base):
+    """视频剪辑任务表"""
+    __tablename__ = 'video_edit_tasks'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    video_ids = Column(Text, nullable=False)  # 视频ID列表，逗号分隔
+    voice_id = Column(Integer, nullable=True)  # 配音音频ID
+    bgm_id = Column(Integer, nullable=True)  # BGM音频ID
+    speed = Column(Float, default=1.0)  # 播放速度（1.0=正常速度）
+    subtitle_path = Column(String(1000), nullable=True)  # 字幕文件路径
+    output_path = Column(String(1000), nullable=True)  # 输出文件路径（相对路径）
+    output_filename = Column(String(255), nullable=True)  # 输出文件名
+    preview_url = Column(String(1000), nullable=True)  # 预览URL
+    status = Column(String(50), default='pending')  # pending/running/success/fail
+    progress = Column(Integer, default=0)  # 进度（0-100）
+    error_message = Column(Text, nullable=True)  # 错误信息
+    created_at = Column(DateTime, default=lambda: __import__('datetime').datetime.now())
+    updated_at = Column(DateTime, default=lambda: __import__('datetime').datetime.now(),
+                       onupdate=lambda: __import__('datetime').datetime.now())
+
+
 # 创建索引
 Index('idx_messages_account_id', Message.account_id)
 Index('idx_messages_timestamp', Message.timestamp)
@@ -218,4 +256,9 @@ Index('idx_messages_user_name', Message.user_name)
 Index('idx_publish_plans_status', PublishPlan.status)
 Index('idx_publish_plans_platform', PublishPlan.platform)
 Index('idx_account_stats_account_date', AccountStats.account_id, AccountStats.stat_date)
+Index('idx_materials_type_time', Material.type, Material.created_at)
+# 注意：path 字段的唯一性由应用层保证，因为 MySQL 对长字段的唯一索引有限制
+# 如果需要数据库层面的唯一性，可以考虑使用哈希字段或缩短路径长度
+Index('idx_video_edit_tasks_status_time', VideoEditTask.status, VideoEditTask.created_at)
+Index('idx_video_edit_tasks_update_time', VideoEditTask.updated_at)
 

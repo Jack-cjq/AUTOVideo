@@ -9,3 +9,10 @@ playwright==1.52.0
 loguru==0.7.3
 aiofiles==24.1.0
 aiohttp==3.9.5
+
+# 若后续用FFmpeg，需安装：
+ffmpeg-python==0.2.0
+openai>=1.0.0
+
+# 若用OpenCV，需安装：
+opencv-python==4.8.1.78

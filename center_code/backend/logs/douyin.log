@@ -610,3 +610,46 @@ Call log:
 2025-12-28 14:05:39.035 | INFO     | services.task_executor:execute_video_upload:444 - 任务 28 状态已提交到数据库
 2025-12-28 14:05:39.037 | SUCCESS  | services.task_executor:execute_video_upload:460 - Video task 28 completed successfully
 2025-12-28 14:05:39.037 | INFO     | services.task_executor:execute_video_upload:461 - Task 28 final status: completed, progress: 100, completed_at: 2025-12-28 14:05:39
+2025-12-30 12:00:23.633 | INFO     | services.task_executor:execute_video_upload:226 - Video task 31 status updated to 'uploading'
+2025-12-30 12:00:23.639 | INFO     | services.task_executor:execute_video_upload:243 - [COOKIES] Account 6 cookies preview: {"cookies": [{"name": "gd_random", "value": "eyJtYXRjaCI6dHJ1ZSwicGVyY2VudCI6MC4xNjk2MDE2NTMyOTczMDYwM30=.zmCagH5Vear4/vvpXtbJoqQwyU6+MVWOUwiDJWSti5Y=", "domain": "creator.douyin.com", "path": "/goofy...
+2025-12-30 12:00:23.641 | INFO     | services.task_executor:execute_video_upload:276 - 📦 Loaded cookies for account 6: 44 cookies, 3 origins
+2025-12-30 12:00:23.641 | WARNING  | services.task_executor:execute_video_upload:282 - ⚠️ Missing important cookies: ['passport_auth']. This may cause login failure.
+2025-12-30 12:00:23.641 | WARNING  | services.task_executor:execute_video_upload:283 - ⚠️ 建议：使用Network标签页获取完整的HttpOnly cookies
+2025-12-30 12:00:23.641 | WARNING  | services.task_executor:execute_video_upload:284 - ⚠️ 当前cookies可能不完整，发布视频时可能会失败
+2025-12-30 12:00:23.641 | INFO     | services.task_executor:execute_video_upload:295 - Cookie domains: ['creator.douyin.com', '.bytedance.com', 'api.feelgood.cn', 'summon.bytedance.com', '.douyin.com']...
+2025-12-30 12:00:23.642 | INFO     | services.task_executor:execute_video_upload:303 - Cookie names (first 10): ['gd_random', 'gd_random', 'gd_random', 'gd_random', 'SEARCH_RESULT_LIST_TYPE', 'hevc_supported', 'volume_info', 'bd_ticket_guard_client_web_domain', 'passport_csrf_token', 'passport_csrf_token_default']
+2025-12-30 12:00:23.657 | INFO     | services.task_executor:execute_video_upload:381 - Starting upload: title=测试, video_path=D:\Autovideo\center_code\uploads\videos\20251230_115907_c72d77a8a635b885bc00ea12c4d5df8e.mp4, tags=[]
+2025-12-30 12:00:23.658 | INFO     | services.task_executor:execute_video_upload:385 - 开始执行视频上传任务 31...
+2025-12-30 12:00:23.658 | INFO     | uploader.douyin_uploader.main:__init__:74 - DouYinVideo initialized - title: '测试', tags: [], account_id: 6
+2025-12-30 12:00:23.658 | INFO     | services.task_executor:execute_upload:550 - 开始调用 DouYinVideo.main() 执行视频上传: 测试
+2025-12-30 12:00:31.833 | WARNING  | uploader.douyin_uploader.main:_validate_cookies_from_db:292 - 账号 6 缺少关键 cookies: ['passport_auth']
+2025-12-30 12:00:31.835 | INFO     | uploader.douyin_uploader.main:_validate_cookies_from_db:294 - 从数据库验证 cookies: 账号 6, 44 个 cookies
+2025-12-30 12:00:31.835 | INFO     | uploader.douyin_uploader.main:upload:308 - [浏览器] 使用 Chrome 浏览器: C:\Program Files\Google\Chrome\Application\chrome.exe
+2025-12-30 12:00:32.083 | INFO     | uploader.douyin_uploader.main:upload:315 - Loading cookies from: C:\Users\ADMINI~1\AppData\Local\Temp\tmpvxz87mtf.json
+2025-12-30 12:00:32.536 | INFO     | uploader.douyin_uploader.main:upload:322 - [+]正在上传-------测试.mp4
+2025-12-30 12:00:32.536 | INFO     | uploader.douyin_uploader.main:upload:323 - [-] 正在打开上传页面...
+2025-12-30 12:00:37.710 | INFO     | uploader.douyin_uploader.main:upload:346 - Cookies验证通过，继续上传流程
+2025-12-30 12:00:43.195 | INFO     | uploader.douyin_uploader.main:upload:366 - [+] 成功进入version_2发布页面!
+2025-12-30 12:00:44.409 | INFO     | uploader.douyin_uploader.main:upload:376 -   [-] 正在填充标题和话题...
+2025-12-30 12:00:44.409 | INFO     | uploader.douyin_uploader.main:upload:377 -   [-] 标题内容: "测试"
+2025-12-30 12:00:44.410 | INFO     | uploader.douyin_uploader.main:upload:378 -   [-] 标签列表: []
+2025-12-30 12:00:47.792 | INFO     | uploader.douyin_uploader.main:upload:399 -   [-] 已通过键盘输入标题: "测试"
+2025-12-30 12:00:48.597 | WARNING  | uploader.douyin_uploader.main:upload:416 -   [-] 标签列表为空，跳过标签填充
+2025-12-30 12:00:48.609 | INFO     | uploader.douyin_uploader.main:upload:426 -   [-] 正在上传视频中...
+2025-12-30 12:00:50.637 | INFO     | uploader.douyin_uploader.main:upload:426 -   [-] 正在上传视频中...
+2025-12-30 12:00:52.660 | SUCCESS  | uploader.douyin_uploader.main:upload:423 -   [-]视频上传完毕
+2025-12-30 12:00:53.663 | SUCCESS  | uploader.douyin_uploader.main:upload:472 -   [-]视频发布成功
+2025-12-30 12:00:53.829 | SUCCESS  | uploader.douyin_uploader.main:upload:481 -   [-]cookie更新完毕！
+2025-12-30 12:00:53.840 | INFO     | uploader.douyin_uploader.main:upload:490 -   [-]成功读取更新后的cookies，准备返回给 task_executor 更新任务状态
+2025-12-30 12:00:53.860 | SUCCESS  | uploader.douyin_uploader.main:upload:503 -   [-]账号 6 的 cookies 已更新到数据库
+2025-12-30 12:02:34.293 | INFO     | uploader.douyin_uploader.main:upload:515 -   [-]返回更新后的cookies给 task_executor，任务状态将被更新为 completed
+2025-12-30 12:02:34.310 | SUCCESS  | services.task_executor:execute_upload:556 - Video uploaded successfully: 测试
+2025-12-30 12:02:34.310 | INFO     | services.task_executor:execute_upload:559 - 收到有效的 cookies 数据，包含 44 个 cookies
+2025-12-30 12:02:34.310 | INFO     | services.task_executor:execute_video_upload:400 - 视频上传任务 31 执行完成，收到 uploader 返回结果，开始更新任务状态...
+2025-12-30 12:02:34.311 | INFO     | services.task_executor:execute_video_upload:403 - 收到有效的 cookies 数据，将更新到数据库
+2025-12-30 12:02:34.313 | INFO     | services.task_executor:execute_video_upload:428 - 更新账号 6 的 cookies 到数据库...
+2025-12-30 12:02:34.328 | SUCCESS  | services.task_executor:execute_video_upload:431 - 账号 6 的 cookies 已更新到数据库
+2025-12-30 12:02:34.331 | INFO     | services.task_executor:execute_video_upload:444 - 视频发布成功，更新任务 31 状态为 completed...
+2025-12-30 12:02:34.342 | INFO     | services.task_executor:execute_video_upload:457 - 任务 31 状态已提交到数据库: status=completed, progress=100
+2025-12-30 12:02:34.347 | SUCCESS  | services.task_executor:execute_video_upload:476 - Video task 31 completed successfully
+2025-12-30 12:02:34.347 | INFO     | services.task_executor:execute_video_upload:477 - Task 31 final status: completed, progress: 100, completed_at: 2025-12-30 12:02:34
