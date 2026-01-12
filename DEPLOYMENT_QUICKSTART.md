@@ -28,7 +28,7 @@ git clone https://github.com/Jack-cjq/AUTOVideo.git
 ### 2. 运行部署脚本
 
 ```bash
-cd /var/www/autovideo
+cd /var/www/autovideo/AUTOVideo
 chmod +x deploy.sh
 ./deploy.sh
 ```
@@ -48,7 +48,7 @@ chmod +x deploy.sh
 脚本会创建 `.env` 文件，请编辑并填入正确的配置：
 
 ```bash
-vim /var/www/autovideo/center_code/backend/.env
+vim /var/www/autovideo/AUTOVideo/center_code/backend/.env
 ```
 
 **必须修改的配置**：
@@ -61,7 +61,7 @@ vim /var/www/autovideo/center_code/backend/.env
 如果脚本运行时跳过了数据库初始化，可以手动执行：
 
 ```bash
-cd /var/www/autovideo/center_code/backend
+cd /var/www/autovideo/AUTOVideo/center_code/backend
 source venv/bin/activate
 export $(cat .env | grep -v '^#' | xargs)
 python init_database.py
@@ -105,7 +105,7 @@ EXIT;
 ### 3. 配置 Python 环境
 
 ```bash
-cd /var/www/autovideo/center_code/backend
+cd /var/www/autovideo/AUTOVideo/center_code/backend
 python3 -m venv venv
 source venv/bin/activate
 pip install --upgrade pip
@@ -131,7 +131,7 @@ python init_user.py
 ### 6. 构建前端
 
 ```bash
-cd /var/www/autovideo/center_code/frontend
+cd /var/www/autovideo/AUTOVideo/center_code/frontend
 npm install
 npm run build
 ```
@@ -225,17 +225,17 @@ sudo netstat -tlnp | grep 8080
 mysql -u root -p -h localhost autovideo
 
 # 检查 .env 文件中的数据库配置
-cat /var/www/autovideo/center_code/backend/.env | grep DB_
+cat /var/www/autovideo/AUTOVideo/center_code/backend/.env | grep DB_
 ```
 
 ### 3. 前端页面空白
 
 ```bash
 # 检查前端文件是否构建成功
-ls -la /var/www/autovideo/center_code/backend/static/
+ls -la /var/www/autovideo/AUTOVideo/center_code/backend/static/
 
 # 重新构建前端
-cd /var/www/autovideo/center_code/frontend
+cd /var/www/autovideo/AUTOVideo/center_code/frontend
 npm run build
 ```
 
@@ -243,11 +243,11 @@ npm run build
 
 ```bash
 # 检查上传目录权限
-ls -la /var/www/autovideo/center_code/uploads/
+ls -la /var/www/autovideo/AUTOVideo/center_code/uploads/
 
 # 修复权限
-sudo chmod -R 755 /var/www/autovideo/center_code/uploads/
-sudo chown -R $USER:$USER /var/www/autovideo/center_code/uploads/
+sudo chmod -R 755 /var/www/autovideo/AUTOVideo/center_code/uploads/
+sudo chown -R $USER:$USER /var/www/autovideo/AUTOVideo/center_code/uploads/
 ```
 
 ---

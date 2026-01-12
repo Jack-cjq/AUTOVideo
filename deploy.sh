@@ -23,8 +23,8 @@ if [ "$EUID" -eq 0 ]; then
    exit 1
 fi
 
-# 项目路径
-PROJECT_DIR="/var/www/autovideo"
+# 项目路径（Git 克隆会创建 AUTOVideo 目录）
+PROJECT_DIR="/var/www/autovideo/AUTOVideo"
 BACKEND_DIR="$PROJECT_DIR/center_code/backend"
 FRONTEND_DIR="$PROJECT_DIR/center_code/frontend"
 

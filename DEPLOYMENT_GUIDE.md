@@ -152,7 +152,7 @@ sudo apt install -y \
 # 创建项目目录
 sudo mkdir -p /var/www/autovideo
 sudo chown $USER:$USER /var/www/autovideo
-cd /var/www/autovideo
+cd /var/www/autovideo/AUTOVideo
 
 # 克隆项目（替换为你的仓库地址）
 git clone <your-repository-url> .
@@ -179,7 +179,7 @@ scp -r /path/to/Autovideo root@your_server_ip:/var/www/autovideo
 ### 2.4 设置项目权限
 
 ```bash
-cd /var/www/autovideo
+cd /var/www/autovideo/AUTOVideo
 sudo chown -R $USER:$USER .
 chmod -R 755 .
 ```
@@ -191,7 +191,7 @@ chmod -R 755 .
 ### 3.1 创建 Python 虚拟环境
 
 ```bash
-cd /var/www/autovideo/center_code/backend
+cd /var/www/autovideo/AUTOVideo/AUTOVideo/center_code/backend
 
 # 创建虚拟环境
 python3 -m venv venv
@@ -222,7 +222,7 @@ playwright install-deps chromium
 创建环境变量配置文件：
 
 ```bash
-cd /var/www/autovideo/center_code/backend
+cd /var/www/autovideo/AUTOVideo/AUTOVideo/center_code/backend
 vim .env
 ```
 
@@ -266,7 +266,7 @@ PORT=8080
 ### 3.4 创建启动脚本
 
 ```bash
-cd /var/www/autovideo/center_code/backend
+cd /var/www/autovideo/AUTOVideo/AUTOVideo/center_code/backend
 vim start_production.sh
 ```
 
@@ -276,7 +276,7 @@ vim start_production.sh
 #!/bin/bash
 
 # 激活虚拟环境
-cd /var/www/autovideo/center_code/backend
+cd /var/www/autovideo/AUTOVideo/AUTOVideo/center_code/backend
 source venv/bin/activate
 
 # 加载环境变量
@@ -301,7 +301,7 @@ chmod +x start_production.sh
 ### 4.1 初始化数据库
 
 ```bash
-cd /var/www/autovideo/center_code/backend
+cd /var/www/autovideo/AUTOVideo/AUTOVideo/center_code/backend
 source venv/bin/activate
 
 # 加载环境变量
@@ -327,7 +327,7 @@ python test_db.py
 ### 5.1 安装前端依赖
 
 ```bash
-cd /var/www/autovideo/center_code/frontend
+cd /var/www/autovideo/AUTOVideo/AUTOVideo/center_code/frontend
 
 # 安装依赖
 npm install
@@ -344,7 +344,7 @@ npm install
 
 ```bash
 # 确保在 frontend 目录
-cd /var/www/autovideo/center_code/frontend
+cd /var/www/autovideo/AUTOVideo/AUTOVideo/center_code/frontend
 
 # 构建生产版本（会自动输出到 backend/static 目录）
 npm run build
@@ -375,10 +375,10 @@ After=network.target mysql.service
 Type=simple
 User=your_username
 Group=your_username
-WorkingDirectory=/var/www/autovideo/center_code/backend
-Environment="PATH=/var/www/autovideo/center_code/backend/venv/bin:/usr/local/bin:/usr/bin:/bin"
-EnvironmentFile=/var/www/autovideo/center_code/backend/.env
-ExecStart=/var/www/autovideo/center_code/backend/venv/bin/python /var/www/autovideo/center_code/backend/app.py
+WorkingDirectory=/var/www/autovideo/AUTOVideo/center_code/backend
+Environment="PATH=/var/www/autovideo/AUTOVideo/center_code/backend/venv/bin:/usr/local/bin:/usr/bin:/bin"
+EnvironmentFile=/var/www/autovideo/AUTOVideo/center_code/backend/.env
+ExecStart=/var/www/autovideo/AUTOVideo/center_code/backend/venv/bin/python /var/www/autovideo/AUTOVideo/center_code/backend/app.py
 Restart=always
 RestartSec=10
 
@@ -494,14 +494,14 @@ server {
 
     # 静态文件直接由 Nginx 提供（可选，提高性能）
     location /static/ {
-        alias /var/www/autovideo/center_code/backend/static/;
+        alias /var/www/autovideo/AUTOVideo/center_code/backend/static/;
         expires 30d;
         add_header Cache-Control "public, immutable";
     }
 
     # 上传文件访问
     location /uploads/ {
-        alias /var/www/autovideo/center_code/uploads/;
+        alias /var/www/autovideo/AUTOVideo/center_code/uploads/;
         expires 7d;
         add_header Cache-Control "public";
     }
@@ -631,18 +631,18 @@ sudo systemctl status nginx
 sudo tail -f /var/log/nginx/autovideo_error.log
 
 # 检查前端文件是否存在
-ls -la /var/www/autovideo/center_code/backend/static/
+ls -la /var/www/autovideo/AUTOVideo/center_code/backend/static/
 ```
 
 ### 10.4 文件上传失败
 
 ```bash
 # 检查上传目录权限
-ls -la /var/www/autovideo/center_code/uploads/
+ls -la /var/www/autovideo/AUTOVideo/center_code/uploads/
 
 # 确保目录可写
-sudo chmod -R 755 /var/www/autovideo/center_code/uploads/
-sudo chown -R your_username:your_username /var/www/autovideo/center_code/uploads/
+sudo chmod -R 755 /var/www/autovideo/AUTOVideo/center_code/uploads/
+sudo chown -R your_username:your_username /var/www/autovideo/AUTOVideo/center_code/uploads/
 
 # 检查 Nginx client_max_body_size 配置
 ```
@@ -651,7 +651,7 @@ sudo chown -R your_username:your_username /var/www/autovideo/center_code/uploads
 
 ```bash
 # 重新安装 Playwright 浏览器
-cd /var/www/autovideo/center_code/backend
+cd /var/www/autovideo/AUTOVideo/AUTOVideo/center_code/backend
 source venv/bin/activate
 playwright install chromium
 playwright install-deps chromium
@@ -697,7 +697,7 @@ sudo tail -f /var/log/nginx/autovideo_error.log
 
 ```bash
 # 1. 进入项目目录
-cd /var/www/autovideo
+cd /var/www/autovideo/AUTOVideo
 
 # 2. 拉取最新代码（如果使用 Git）
 git pull
@@ -727,14 +727,14 @@ sudo systemctl status autovideo
 
 ```bash
 # 创建备份脚本
-vim /var/www/autovideo/backup_db.sh
+vim /var/www/autovideo/AUTOVideo/backup_db.sh
 ```
 
 添加内容：
 
 ```bash
 #!/bin/bash
-BACKUP_DIR="/var/www/autovideo/backups"
+BACKUP_DIR="/var/www/autovideo/AUTOVideo/backups"
 DATE=$(date +%Y%m%d_%H%M%S)
 mkdir -p $BACKUP_DIR
 
@@ -752,14 +752,14 @@ find $BACKUP_DIR -name "db_*.sql" -mtime +7 -delete
 crontab -e
 
 # 添加每天凌晨 2 点备份
-0 2 * * * /var/www/autovideo/backup_db.sh
+0 2 * * * /var/www/autovideo/AUTOVideo/backup_db.sh
 ```
 
 ### 13.2 文件备份
 
 ```bash
 # 备份上传的文件
-tar -czf /var/www/autovideo/backups/uploads_$(date +%Y%m%d).tar.gz /var/www/autovideo/center_code/uploads/
+tar -czf /var/www/autovideo/AUTOVideo/backups/uploads_$(date +%Y%m%d).tar.gz /var/www/autovideo/AUTOVideo/center_code/uploads/
 ```
 
 ---
@@ -779,7 +779,7 @@ tar -czf /var/www/autovideo/backups/uploads_$(date +%Y%m%d).tar.gz /var/www/auto
 ### 15.1 安装 Gunicorn
 
 ```bash
-cd /var/www/autovideo/center_code/backend
+cd /var/www/autovideo/AUTOVideo/AUTOVideo/center_code/backend
 source venv/bin/activate
 pip install gunicorn
 ```
@@ -817,10 +817,10 @@ After=network.target mysql.service
 Type=simple
 User=your_username
 Group=your_username
-WorkingDirectory=/var/www/autovideo/center_code/backend
-Environment="PATH=/var/www/autovideo/center_code/backend/venv/bin:/usr/local/bin:/usr/bin:/bin"
-EnvironmentFile=/var/www/autovideo/center_code/backend/.env
-ExecStart=/var/www/autovideo/center_code/backend/venv/bin/gunicorn -c gunicorn_config.py app:app
+WorkingDirectory=/var/www/autovideo/AUTOVideo/center_code/backend
+Environment="PATH=/var/www/autovideo/AUTOVideo/center_code/backend/venv/bin:/usr/local/bin:/usr/bin:/bin"
+EnvironmentFile=/var/www/autovideo/AUTOVideo/center_code/backend/.env
+ExecStart=/var/www/autovideo/AUTOVideo/center_code/backend/venv/bin/gunicorn -c gunicorn_config.py app:app
 Restart=always
 RestartSec=10
 
