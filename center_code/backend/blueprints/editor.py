@@ -104,7 +104,14 @@ def _run_edit_task(
                 task.preview_url = preview_url
                 task.progress = 100
                 task.error_message = None
+                task.updated_at = datetime.datetime.now()
+                
                 logger.info(f"Task {task_id}: Edit succeeded, output: {output_path}")
+                logger.info(f"Task {task_id}: output_filename={output_filename}, preview_url={preview_url}")
+                logger.info(f"Task {task_id}: 文件大小={os.path.getsize(output_path)} 字节")
+                
+                db.commit()
+                logger.info(f"Task {task_id}: 任务状态已更新为 success，已提交到数据库")
             else:
                 # 未生成输出文件
                 task.status = "fail"
@@ -648,11 +655,14 @@ def list_outputs():
                 VideoEditTask.output_filename != ""
             ).order_by(VideoEditTask.updated_at.desc()).limit(200).all()
             
+            logger.info(f"查询到 {len(tasks)} 个成功任务")
+            
             # 在会话内提取所有需要的数据
             for task in tasks:
                 try:
                     filename = task.output_filename
                     if not filename:
+                        logger.warning(f"任务 {task.id} 没有 output_filename")
                         continue
                     
                     # 提取所有需要的属性（在会话内）
@@ -662,20 +672,25 @@ def list_outputs():
                         'preview_url': task.preview_url,
                         'updated_at': task.updated_at,
                     })
+                    logger.debug(f"任务 {task.id}: filename={filename}, preview_url={task.preview_url}")
                 except Exception as e:
                     logger.warning(f"提取任务数据时出错：{e}")
                     continue
 
         # 在会话外处理文件系统操作
         seen = set()
+        logger.info(f"开始处理 {len(task_data)} 个任务数据")
         for task_info in task_data:
             try:
                 filename = task_info['filename']
                 if filename in seen:
+                    logger.debug(f"文件 {filename} 已处理，跳过")
                     continue
                     
                 abs_path = os.path.join(OUTPUT_VIDEO_DIR, filename)
+                logger.debug(f"检查文件：{abs_path}, 存在：{os.path.isfile(abs_path)}")
                 if not os.path.isfile(abs_path):
+                    logger.warning(f"任务 {task_info['id']} 的输出文件不存在：{abs_path}")
                     continue
                     
                 stat = os.stat(abs_path)
