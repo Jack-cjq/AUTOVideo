@@ -172,7 +172,7 @@
                     <div style="display: flex; align-items: center;">
                       <el-image
                         v-if="video.thumbnail_url"
-                        :src="video.thumbnail_url"
+                        :src="getThumbnailPreviewUrl(video.thumbnail_url)"
                         style="width: 60px; height: 40px; margin-right: 10px; border-radius: 4px;"
                         fit="cover"
                       />
@@ -501,7 +501,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Clock, VideoPlay, Promotion, UploadFilled, Warning, Check } from '@element-plus/icons-vue'
 import api from '../api'
@@ -573,8 +573,13 @@ const thumbnailUploadAction = computed(() => {
 
 const uploadHeaders = computed(() => {
   // Element Plus 的 upload 组件会自动设置 Content-Type，不需要手动设置
-  // 如果需要添加认证token，可以在这里添加
-  return {}
+  // 添加认证 token
+  const token = localStorage.getItem('auth_token')
+  const headers = {}
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
+  }
+  return headers
 })
 
 const getPlatformText = (platform) => {
@@ -871,8 +876,12 @@ const getVideoPreviewUrl = (url) => {
   if (!url) return ''
   // 如果是相对路径（如 /uploads/videos/filename.mp4），添加完整的基础URL
   if (url.startsWith('/')) {
-    // 使用 window.location.origin 构建完整的URL
-    const fullUrl = window.location.origin + url
+    // 使用后端 API 基础 URL 构建完整的URL
+    // 如果设置了 VITE_API_BASE_URL，使用它；否则使用默认的后端地址
+    const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api'
+    // 从 API base URL 中提取基础 URL（去掉 /api 后缀）
+    const baseUrl = apiBaseUrl.replace(/\/api\/?$/, '')
+    const fullUrl = baseUrl + url
     console.log('视频预览URL:', fullUrl)
     return fullUrl
   }
@@ -972,12 +981,18 @@ const handleThumbnailUploadError = () => {
 }
 
 // 获取封面图片预览URL
+// 获取封面图片预览URL
 const getThumbnailPreviewUrl = (url) => {
   if (!url) return ''
-  // 如果是相对路径，添加完整的基础URL
+  // 如果是相对路径（如 /uploads/thumbnails/filename.jpg），添加完整的基础URL
   if (url.startsWith('/')) {
-    return window.location.origin + url
+    // 使用后端 API 基础 URL 构建完整的URL
+    const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api'
+    // 从 API base URL 中提取基础 URL（去掉 /api 后缀）
+    const baseUrl = apiBaseUrl.replace(/\/api\/?$/, '')
+    return baseUrl + url
   }
+  // 如果已经是完整URL，直接返回
   return url
 }
 
@@ -1130,7 +1145,12 @@ const handleSubmit = async () => {
       if (!showHistory.value) {
         showHistory.value = true
       }
-      loadPublishHistory()
+      loadPublishHistory().then(() => {
+        // 提交任务后，如果有正在进行的任务，开始轮询
+        if (hasRunningTasks.value) {
+          startPolling()
+        }
+      })
     } else {
       ElMessage.error(response.message || '发布失败')
     }
@@ -1207,8 +1227,68 @@ const handleReset = () => {
   publishInterval.value = 30
 }
 
+// 任务状态轮询
+let pollTimer = null
+const POLL_INTERVAL = 3000 // 3秒轮询一次
+
+// 检查是否有正在进行的任务
+const hasRunningTasks = computed(() => {
+  return publishHistory.value.some(task => 
+    task.status === 'pending' || task.status === 'uploading'
+  )
+})
+
+// 开始轮询任务状态
+const startPolling = () => {
+  // 如果已经有定时器，先清除
+  if (pollTimer) {
+    clearInterval(pollTimer)
+  }
+  
+  // 如果有正在进行的任务且历史记录可见，开始轮询
+  if (hasRunningTasks.value && showHistory.value) {
+    pollTimer = setInterval(() => {
+      if (hasRunningTasks.value && showHistory.value) {
+        loadPublishHistory()
+      } else {
+        // 没有正在进行的任务，停止轮询
+        stopPolling()
+      }
+    }, POLL_INTERVAL)
+    console.log('[轮询] 开始轮询任务状态，间隔:', POLL_INTERVAL, 'ms')
+  }
+}
+
+// 停止轮询
+const stopPolling = () => {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+    console.log('[轮询] 停止轮询任务状态')
+  }
+}
+
+// 监听任务状态变化，自动开始/停止轮询
+watch([hasRunningTasks, showHistory], ([hasRunning, isVisible]) => {
+  if (hasRunning && isVisible) {
+    startPolling()
+  } else {
+    stopPolling()
+  }
+}, { immediate: true })
+
 onMounted(() => {
   loadAccounts()
+})
+
+onUnmounted(() => {
+  // 组件卸载时清除定时器
+  stopPolling()
+})
+
+onUnmounted(() => {
+  // 组件卸载时清除定时器
+  stopPolling()
 })
 </script>
 

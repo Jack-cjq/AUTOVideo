@@ -3,6 +3,8 @@
 """
 import json
 import os
+import threading
+import asyncio
 from flask import Blueprint, request, send_from_directory
 from datetime import datetime, timedelta
 from werkzeug.utils import secure_filename
@@ -11,6 +13,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils import response_success, response_error, login_required
 from models import VideoTask, Account, VideoLibrary
 from db import get_db
+from services.task_executor import execute_video_upload
 
 publish_bp = Blueprint('publish', __name__, url_prefix='/api/publish')
 
@@ -308,10 +311,28 @@ def submit_publish():
             
             db.commit()
             
+            # 如果是立即发布，立即触发任务执行
+            if publish_type == 'immediate':
+                print(f"[立即发布] 检测到 {len(task_ids)} 个立即发布任务，开始执行...")
+                for task_id in task_ids:
+                    try:
+                        # 在后台线程中立即执行任务
+                        thread = threading.Thread(
+                            target=lambda tid=task_id: asyncio.run(execute_video_upload(tid)),
+                            daemon=True
+                        )
+                        thread.start()
+                        print(f"[立即发布] ✓ 已启动任务 {task_id} 的执行")
+                    except Exception as e:
+                        print(f"[立即发布] ✗ 启动任务 {task_id} 失败: {e}")
+                        import traceback
+                        traceback.print_exc()
+            
             return response_success({
                 'task_ids': task_ids,
                 'total_accounts': len(accounts),
-                'total_tasks': len(task_ids)
+                'total_tasks': len(task_ids),
+                'immediate': publish_type == 'immediate'
             }, f'Publish tasks created successfully for {len(accounts)} account(s)')
             
     except Exception as e:
