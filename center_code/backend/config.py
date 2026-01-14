@@ -16,7 +16,7 @@ MYSQL_CONFIG = {
     'port': int(os.getenv('DB_PORT', 3306)),
     'database': os.getenv('DB_NAME', 'autovideo'),
     'user': os.getenv('DB_USER', 'root'),
-    'password': os.getenv('DB_PASSWORD', '12345678'),  # ⚠️ 请设置你的 MySQL 密码
+    'password': os.getenv('DB_PASSWORD', '123456'),  # ⚠️ 请设置你的 MySQL 密码
     'charset': 'utf8mb4'
 }
 

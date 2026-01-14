@@ -11,7 +11,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
-from flask import Flask, send_from_directory
+from flask import Flask, send_from_directory, request, jsonify
 from flask_cors import CORS
 
 from models import Base
@@ -96,15 +96,120 @@ cors_origins = [
 # 如果环境变量设置了允许的源，则使用环境变量
 if os.getenv('CORS_ORIGINS'):
     cors_origins = [origin.strip() for origin in os.getenv('CORS_ORIGINS').split(',') if origin.strip()]
+# 开发环境：如果没有设置 CORS_ORIGINS，允许所有 localhost 和 127.0.0.1 的端口
+elif not is_production:
+    # 开发环境允许所有 localhost 端口
+    cors_origins = ['*']  # 开发环境允许所有来源
 # 生产环境：如果没有设置 CORS_ORIGINS，允许所有来源（通过 Nginx 代理时）
-elif is_production:
+else:
     cors_origins = ['*']  # 生产环境通过 Nginx 代理，允许所有来源
 
 CORS(app, 
      supports_credentials=True,
      origins=cors_origins,
-     allow_headers=['Content-Type', 'Authorization'],
-     methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'])
+     allow_headers=['Content-Type', 'Authorization', 'X-Requested-With'],
+     methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+     expose_headers=['Content-Type', 'Authorization'],
+     max_age=3600)
+
+# 添加全局 CORS 错误处理，确保所有响应都包含 CORS 头（包括错误响应）
+@app.after_request
+def after_request(response):
+    """确保所有响应都包含 CORS 头，包括错误响应"""
+    origin = request.headers.get('Origin')
+    
+    # 如果请求包含 Origin 头，添加 CORS 响应头
+    if origin:
+        # 开发环境：优先允许所有 localhost 和 127.0.0.1
+        if not is_production and ('localhost' in origin or '127.0.0.1' in origin):
+            response.headers['Access-Control-Allow-Origin'] = origin
+        # 检查是否在允许的源列表中，或者允许所有源
+        elif cors_origins == ['*'] or origin in cors_origins:
+            response.headers['Access-Control-Allow-Origin'] = origin
+        
+        # 只有在设置了 Access-Control-Allow-Origin 时才设置其他 CORS 头
+        if 'Access-Control-Allow-Origin' in response.headers:
+            response.headers['Access-Control-Allow-Credentials'] = 'true'
+            response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS, PATCH'
+            response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
+            response.headers['Access-Control-Expose-Headers'] = 'Content-Type, Authorization'
+            response.headers['Access-Control-Max-Age'] = '3600'
+    
+    return response
+
+# 处理 OPTIONS 预检请求
+@app.before_request
+def handle_preflight():
+    """处理 CORS 预检请求"""
+    if request.method == "OPTIONS":
+        response = jsonify({})
+        origin = request.headers.get('Origin')
+        if origin:
+            # 开发环境：允许所有 localhost 和 127.0.0.1
+            if not is_production and ('localhost' in origin or '127.0.0.1' in origin):
+                response.headers['Access-Control-Allow-Origin'] = origin
+            elif cors_origins == ['*'] or origin in cors_origins:
+                response.headers['Access-Control-Allow-Origin'] = origin
+            
+            if 'Access-Control-Allow-Origin' in response.headers:
+                response.headers['Access-Control-Allow-Credentials'] = 'true'
+                response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS, PATCH'
+                response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
+                response.headers['Access-Control-Max-Age'] = '3600'
+        return response
+
+# 全局错误处理，确保错误响应也包含 CORS 头
+@app.errorhandler(Exception)
+def handle_exception(e):
+    """处理所有异常，确保错误响应包含 CORS 头"""
+    from flask import make_response
+    import traceback
+    
+    # 记录错误
+    error_type = type(e).__name__
+    error_msg = str(e)
+    print(f"\n{'='*60}")
+    print(f"❌ 错误类型: {error_type}")
+    print(f"❌ 错误信息: {error_msg}")
+    print(f"{'='*60}")
+    traceback.print_exc()
+    print(f"{'='*60}\n")
+    
+    # 确定 HTTP 状态码
+    if hasattr(e, 'code'):
+        status_code = e.code
+    elif '404' in error_msg or 'Not Found' in error_msg:
+        status_code = 404
+    elif '401' in error_msg or 'Unauthorized' in error_msg:
+        status_code = 401
+    elif '403' in error_msg or 'Forbidden' in error_msg:
+        status_code = 403
+    else:
+        status_code = 500
+    
+    # 创建错误响应
+    response = make_response(jsonify({
+        'code': status_code,
+        'message': error_msg if status_code != 500 else '服务器内部错误',
+        'data': None
+    }), status_code)
+    
+    # 添加 CORS 头
+    origin = request.headers.get('Origin')
+    if origin:
+        # 开发环境：优先允许所有 localhost 和 127.0.0.1
+        if not is_production and ('localhost' in origin or '127.0.0.1' in origin):
+            response.headers['Access-Control-Allow-Origin'] = origin
+        elif cors_origins == ['*'] or origin in cors_origins:
+            response.headers['Access-Control-Allow-Origin'] = origin
+        
+        if 'Access-Control-Allow-Origin' in response.headers:
+            response.headers['Access-Control-Allow-Credentials'] = 'true'
+            response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS, PATCH'
+            response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
+            response.headers['Access-Control-Expose-Headers'] = 'Content-Type, Authorization'
+    
+    return response
 
 # 注册所有 Blueprint
 app.register_blueprint(auth_bp)
