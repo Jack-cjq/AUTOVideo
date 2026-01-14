@@ -1,0 +1,1 @@
+import{G as e}from"./index-BK2N8vuI.js";const n=t=>e.get("/data-center/video-stats",{params:t}),c=t=>e.get("/data-center/account-ranking",{params:t}),o=t=>e.get("/data-center/video-stats-by-account",{params:t});export{c as a,o as b,n as g};

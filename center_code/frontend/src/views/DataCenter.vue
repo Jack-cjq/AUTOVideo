@@ -78,7 +78,13 @@
           </div>
         </template>
         <el-table :data="accountRankings" style="width: 100%" v-loading="rankingLoading" stripe>
-          <el-table-column prop="account_name" label="账号名称" min-width="150" show-overflow-tooltip />
+          <el-table-column prop="account_name" label="账号名称" min-width="150" show-overflow-tooltip>
+            <template #default="scope">
+              <el-button type="text" @click="handleAccountClick(scope.row)">
+                {{ scope.row.account_name }}
+              </el-button>
+            </template>
+          </el-table-column>
           <el-table-column prop="platform" label="平台" width="100">
             <template #default="scope">
               <el-tag size="small">{{ scope.row.platform }}</el-tag>
@@ -110,13 +116,36 @@
         </div>
       </el-card>
     </el-card>
+
+    <!-- 视频数据对话框 -->
+    <el-dialog
+      v-model="videoDialogVisible"
+      :title="videoDialogTitle"
+      width="800px"
+    >
+      <el-table :data="videoStatsList" style="width: 100%" v-loading="videoStatsLoading" stripe>
+        <el-table-column prop="video_title" label="视频标题" min-width="200" show-overflow-tooltip />
+        <el-table-column prop="publish_date" label="发布日期" width="180">
+          <template #default="scope">
+            {{ formatDate(scope.row.publish_date) }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="playbacks" label="播放量" width="120" align="center" sortable />
+        <el-table-column prop="likes" label="点赞数" width="120" align="center" sortable />
+        <el-table-column prop="comments" label="评论数" width="120" align="center" sortable />
+        <el-table-column prop="shares" label="分享数" width="120" align="center" sortable />
+      </el-table>
+      <template #footer>
+        <el-button @click="videoDialogVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { getVideoStats, getAccountRanking } from '../api/dataCenter'
+import { getVideoStats, getAccountRanking, getVideoStatsByAccount } from '../api/dataCenter'
 import api from '../api'
 
 const loading = ref(false)
@@ -125,6 +154,15 @@ const stats = ref({})
 const accountRankings = ref([])
 const accounts = ref([])
 const dateRange = ref([])
+
+// 视频数据对话框
+const videoDialogVisible = ref(false)
+const videoStatsLoading = ref(false)
+const videoStatsList = ref([])
+const selectedAccount = ref(null)
+const videoDialogTitle = computed(() => {
+  return selectedAccount.value ? `${selectedAccount.value.account_name} 的视频数据` : '视频数据'
+})
 
 const filters = ref({
   platform: '',
@@ -198,6 +236,36 @@ const resetFilters = () => {
   }
   dateRange.value = []
   loadStats()
+}
+
+// 处理账号点击事件
+const handleAccountClick = async (account) => {
+  selectedAccount.value = account
+  videoDialogVisible.value = true
+  await loadVideoStats(account.account_id)
+}
+
+// 加载视频统计数据
+const loadVideoStats = async (accountId) => {
+  try {
+    videoStatsLoading.value = true
+    const response = await getVideoStatsByAccount({ account_id: accountId })
+    if (response.code === 200) {
+      videoStatsList.value = response.data.videos
+    }
+  } catch (error) {
+    console.error('加载视频统计数据失败:', error)
+    ElMessage.error('加载视频统计数据失败')
+  } finally {
+    videoStatsLoading.value = false
+  }
+}
+
+// 日期格式化
+const formatDate = (dateString) => {
+  if (!dateString) return ''
+  const date = new Date(dateString)
+  return date.toLocaleString('zh-CN')
 }
 
 onMounted(() => {

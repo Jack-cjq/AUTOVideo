@@ -115,6 +115,22 @@
             />
           </el-select>
         </el-form-item>
+        <el-form-item label="选择账号" required>
+          <el-select
+            v-model="form.account_ids"
+            multiple
+            filterable
+            placeholder="请选择要使用的账号（可多选）"
+            style="width: 100%;"
+          >
+            <el-option
+              v-for="account in accounts"
+              :key="account.id"
+              :label="account.account_name"
+              :value="account.id"
+            />
+          </el-select>
+        </el-form-item>
         <el-form-item label="分发模式">
           <el-select v-model="form.distribution_mode" placeholder="请选择分发模式" style="width: 100%;">
             <el-option label="手动分发" value="manual" />
@@ -217,15 +233,17 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getPublishPlans, createPublishPlan, updatePublishPlan, deletePublishPlan, addVideoToPlan, savePublishInfo } from '../api/publishPlans'
 import { getMerchants } from '../api/merchants'
 import { getVideos } from '../api/videoLibrary'
+import api from '../api/index'
 
 const loading = ref(false)
 const plans = ref([])
 const merchants = ref([])
+const accounts = ref([])
 
 const filters = ref({
   platform: '',
@@ -247,7 +265,8 @@ const form = ref({
   merchant_id: null,
   distribution_mode: 'manual',
   publish_time: '',
-  publish_mode: 'batch'
+  publish_mode: 'batch',
+  account_ids: []
 })
 const videoLibrary = ref([])
 const videoLoading = ref(false)
@@ -332,6 +351,17 @@ const loadMerchants = async () => {
   }
 }
 
+const loadAccounts = async (platform = 'douyin') => {
+  try {
+    const response = await api.accounts.list({ platform, limit: 100 })
+    if (response.code === 200) {
+      accounts.value = response.data.accounts
+    }
+  } catch (error) {
+    console.error('加载账号列表失败:', error)
+  }
+}
+
 const resetFilters = () => {
   filters.value = {
     platform: '',
@@ -360,11 +390,13 @@ const handleCreate = () => {
     merchant_id: null,
     distribution_mode: 'manual',
     publish_time: '',
-    publish_mode: 'batch'
+    publish_mode: 'batch',
+    account_ids: []
   }
   phasedItems.value = []
   batchVideoIds.value = []
   batchTime.value = ''
+  loadAccounts('douyin')
   dialogVisible.value = true
 }
 
@@ -375,8 +407,14 @@ const handleEdit = (row) => {
     platform: row.platform,
     merchant_id: row.merchant_id,
     distribution_mode: row.distribution_mode,
-    publish_time: row.publish_time ? new Date(row.publish_time).toISOString().slice(0, 19).replace('T', ' ') : ''
+    publish_time: row.publish_time ? new Date(row.publish_time).toISOString().slice(0, 19).replace('T', ' ') : '',
+    publish_mode: 'batch',
+    account_ids: []
   }
+  phasedItems.value = []
+  batchVideoIds.value = []
+  batchTime.value = ''
+  loadAccounts(row.platform)
   dialogVisible.value = true
 }
 
@@ -404,6 +442,10 @@ const handleSubmit = async () => {
     ElMessage.warning('请输入计划名称')
     return
   }
+  if (!form.value.account_ids || form.value.account_ids.length === 0) {
+    ElMessage.warning('请至少选择一个账号')
+    return
+  }
   if (form.value.publish_mode === 'phased') {
     const invalid = phasedItems.value.some(it => !it.video_id || !it.schedule_time)
     if (invalid) {
@@ -423,7 +465,8 @@ const handleSubmit = async () => {
       platform: form.value.platform,
       merchant_id: form.value.merchant_id || undefined,
       distribution_mode: form.value.distribution_mode,
-      publish_time: form.value.publish_time || undefined
+      publish_time: form.value.publish_time || undefined,
+      account_ids: form.value.account_ids
     }
     
     let response
@@ -499,6 +542,13 @@ const handleSubmit = async () => {
     console.error(error)
   }
 }
+
+// 监听平台变化，更新账号列表
+watch(() => form.value.platform, (newPlatform) => {
+  loadAccounts(newPlatform)
+  // 清空已选择的账号，因为平台变了
+  form.value.account_ids = []
+})
 
 onMounted(() => {
   loadPlans()

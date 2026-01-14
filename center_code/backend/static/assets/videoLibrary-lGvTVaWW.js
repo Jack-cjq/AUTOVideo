@@ -1,0 +1,1 @@
+import{G as r}from"./index-DyjCXijH.js";const i=e=>r.get("/video-library",{params:e}),a=e=>r.post("/video-library",e),d=(e,t)=>r.put(`/video-library/${e}`,t),s=e=>r.delete(`/video-library/${e}`);export{a,s as d,i as g,d as u};
