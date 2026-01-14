@@ -1,7 +1,7 @@
 """
 数据模型定义
 """
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Index, Text, Float, REAL
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Index, Text, Float, REAL, Boolean
 from sqlalchemy.orm import declarative_base
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -14,7 +14,10 @@ class User(Base):
     
     id = Column(Integer, primary_key=True, autoincrement=True)
     username = Column(String(100), unique=True, nullable=False, index=True)
+    email = Column(String(255), unique=True, nullable=False, index=True)
     password_hash = Column(String(255), nullable=False)
+    avatar_url = Column(String(500))
+    is_verified = Column(Boolean, default=False)
     created_at = Column(DateTime, default=lambda: __import__('datetime').datetime.now())
     updated_at = Column(DateTime, default=lambda: __import__('datetime').datetime.now(),
                        onupdate=lambda: __import__('datetime').datetime.now())
@@ -26,6 +29,18 @@ class User(Base):
     def check_password(self, password):
         """验证密码"""
         return check_password_hash(self.password_hash, password)
+
+
+class EmailVerification(Base):
+    """???????????????"""
+    __tablename__ = 'email_verifications'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    email = Column(String(255), nullable=False, index=True)
+    code = Column(String(20), nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    used_at = Column(DateTime)
+    created_at = Column(DateTime, default=lambda: __import__('datetime').datetime.now())
 
 
 class Device(Base):

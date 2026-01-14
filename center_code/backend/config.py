@@ -16,7 +16,7 @@ MYSQL_CONFIG = {
     'port': int(os.getenv('DB_PORT', 3306)),
     'database': os.getenv('DB_NAME', 'autovideo'),
     'user': os.getenv('DB_USER', 'root'),
-    'password': os.getenv('DB_PASSWORD', 'Yjy793784546'),  # ⚠️ 请设置你的 MySQL 密码
+    'password': os.getenv('DB_PASSWORD', 'Yjy79378454678'),  # ⚠️ 请设置你的 MySQL 密码
     'charset': 'utf8mb4'
 }
 
@@ -33,7 +33,7 @@ def get_db_config():
 def get_db_url():
     """获取数据库连接URL"""
     config = get_db_config()
-    return f"mysql+pymysql://{config['user']}:{config['password']}@{config['host']}:{config['port']}/{config['database']}?charset={config['charset']}"
+    return f"mysql+pymysql://{config['user']}:{config['password']}@{config['host']}:{config['port']}/{config['database']}?charset={config['charset']}&collation=utf8mb4_bin"
 
 
 # =========================

@@ -2,14 +2,14 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { resolve } from 'path'
 
-// 从环境变量获取后端地址，默认使用8080端口（后端默认端口）
+// 从环境变量获取后端地址，默认使用5000端口（后端默认端口）
 // 可以通过环境变量 VITE_BACKEND_PORT 或 VITE_BACKEND_URL 配置
 // 例如：VITE_BACKEND_PORT=8081 或 VITE_BACKEND_URL=http://localhost:8081
 const getBackendUrl = () => {
   if (process.env.VITE_BACKEND_URL) {
     return process.env.VITE_BACKEND_URL
   }
-  const port = process.env.VITE_BACKEND_PORT || '8080'
+  const port = process.env.VITE_BACKEND_PORT || '5000'
   return `http://localhost:${port}`
 }
 

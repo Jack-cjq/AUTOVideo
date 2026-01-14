@@ -28,6 +28,9 @@ try:
         response_success = backend_utils.response_success
         response_error = backend_utils.response_error
         login_required = backend_utils.login_required
+        has_valid_token = backend_utils.has_valid_token
+        create_access_token = backend_utils.create_access_token
+        decode_access_token = backend_utils.decode_access_token
         model_to_dict = backend_utils.model_to_dict
         models_to_list = backend_utils.models_to_list
     else:
@@ -44,6 +47,15 @@ except Exception as e:
     
     def login_required(f):
         return f
+
+    def has_valid_token():
+        return False
+
+    def create_access_token(user_id, username, email):
+        return ''
+
+    def decode_access_token(token):
+        return {}
     
     def model_to_dict(model):
         return {}

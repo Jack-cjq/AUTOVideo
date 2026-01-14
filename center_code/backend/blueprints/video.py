@@ -7,7 +7,7 @@ from datetime import datetime
 import os
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from utils import response_success, response_error, login_required
+from utils import response_success, response_error, login_required, has_valid_token
 from models import VideoTask, Account
 from db import get_db
 
@@ -153,7 +153,6 @@ def get_video_tasks():
         - 支持按账号和状态筛选
     """
     try:
-        from flask import session
         account_id = request.args.get('account_id', type=int)
         status = request.args.get('status')
         

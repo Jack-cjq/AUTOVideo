@@ -1,7 +1,10 @@
 """
 工具函数
 """
-from flask import jsonify, session
+from flask import jsonify, request
+import os
+import jwt
+from datetime import datetime, timedelta
 from functools import wraps
 from db import get_db
 from models import User
@@ -25,42 +28,85 @@ def response_error(message='error', code=400, data=None):
     }), code
 
 
+def create_access_token(user_id, username, email):
+    """创建JWT访问令牌"""
+    secret = os.getenv('JWT_SECRET', 'change-me-in-production')
+    payload = {
+        'sub': str(user_id),
+        'username': username,
+        'email': email,
+        'iat': datetime.utcnow(),
+        'exp': datetime.utcnow() + timedelta(hours=24)
+    }
+    return jwt.encode(payload, secret, algorithm='HS256')
+
+
+def decode_access_token(token):
+    """解码JWT令牌"""
+    secret = os.getenv('JWT_SECRET', 'change-me-in-production')
+    return jwt.decode(token, secret, algorithms=['HS256'])
+
+
 def login_required(f):
-    """登录验证装饰器
-    
-    验证用户是否已登录，并检查：
-    1. session 中是否存在 logged_in 标志
-    2. session 中是否存在 user_id
-    3. 数据库中用户是否仍然存在（防止用户被删除后仍能访问）
-    """
+    """JWT登录验证装饰器"""
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        # 检查 session 中的登录状态
-        if not session.get('logged_in'):
-            return response_error('请先登录', 401)
-        
-        # 检查 session 中是否有 user_id
-        user_id = session.get('user_id')
+        auth_header = request.headers.get('Authorization', '')
+        if not auth_header.startswith('Bearer '):
+            return response_error('缺少访问令牌', 401)
+
+        token = auth_header.split(' ', 1)[1].strip()
+        try:
+            payload = decode_access_token(token)
+        except Exception:
+            return response_error('令牌无效或已过期', 401)
+
+        user_id = payload.get('sub')
         if not user_id:
-            # 如果 session 中有 logged_in 但没有 user_id，说明 session 可能被篡改
-            session.clear()  # 清除无效的 session
-            return response_error('登录状态无效，请重新登录', 401)
-        
-        # 验证用户是否仍然存在于数据库中（防止用户被删除后仍能访问）
+            return response_error('令牌格式错误', 401)
+        try:
+            user_id = int(user_id)
+        except ValueError:
+            return response_error('令牌格式错误', 401)
+
         try:
             with get_db() as db:
                 user = db.query(User).filter(User.id == user_id).first()
                 if not user:
-                    # 用户不存在，清除 session
-                    session.clear()
-                    return response_error('用户不存在，请重新登录', 401)
-        except Exception as e:
-            # 数据库查询失败，但不应该阻止访问（可能是临时数据库问题）
-            # 记录错误但继续执行（可以根据需要调整策略）
-            pass
-        
+                    return response_error('用户不存在', 401)
+        except Exception:
+            return response_error('数据库查询失败', 401)
+
         return f(*args, **kwargs)
     return decorated_function
+
+
+def has_valid_token():
+    """Return True when the request carries a valid JWT."""
+    auth_header = request.headers.get('Authorization', '')
+    if not auth_header.startswith('Bearer '):
+        return False
+
+    token = auth_header.split(' ', 1)[1].strip()
+    try:
+        payload = decode_access_token(token)
+    except Exception:
+        return False
+
+    user_id = payload.get('sub')
+    if not user_id:
+        return False
+    try:
+        user_id = int(user_id)
+    except ValueError:
+        return False
+
+    try:
+        with get_db() as db:
+            user = db.query(User).filter(User.id == user_id).first()
+            return user is not None
+    except Exception:
+        return False
 
 
 def model_to_dict(model):
@@ -81,4 +127,3 @@ def model_to_dict(model):
 def models_to_list(models):
     """将SQLAlchemy模型列表转换为字典列表"""
     return [model_to_dict(model) for model in models]
-

@@ -2,79 +2,70 @@ import axios from 'axios'
 
 const apiClient = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
-  withCredentials: true,
   headers: {
     'Content-Type': 'application/json'
   }
 })
 
-// 请求拦截器
 apiClient.interceptors.request.use(
   config => {
+    const token = localStorage.getItem('auth_token')
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`
+    }
     return config
   },
-  error => {
-    return Promise.reject(error)
-  }
+  error => Promise.reject(error)
 )
 
-// 响应拦截器
 apiClient.interceptors.response.use(
-  response => {
-    return response.data
-  },
+  response => response.data,
   error => {
-    // 处理网络错误（后端未运行、网络断开等）
     if (!error.response) {
-      // 判断是否为网络错误
       if (error.code === 'ERR_NETWORK' || error.message === 'Network Error' || error.message?.includes('Network')) {
-        // 返回统一的网络错误格式
         return Promise.reject({
           success: false,
-          message: '网络连接失败，请检查后端服务是否运行',
+          message: 'Network error, please check the backend service',
           code: 500
         })
       }
-      // 其他错误（如超时）
       return Promise.reject({
         success: false,
-        message: error.message || '请求失败，请稍后再试',
+        message: error.message || 'Request failed, please try again',
         code: 500
       })
     }
-    
-    // 处理 401 认证错误（统一处理未授权访问）
+
     if (error.response.status === 401) {
-      // 动态导入 auth store 以避免循环依赖
       import('../stores/auth').then(({ useAuthStore }) => {
         const authStore = useAuthStore()
-        // 清除登录状态
         authStore.isLoggedIn = false
         authStore.username = ''
-        // 显示登录对话框
-        authStore.showLoginDialog = true
+        authStore.email = ''
+        authStore.token = ''
       }).catch(() => {
-        // 如果导入失败，忽略（可能是未初始化）
-        console.warn('无法导入 auth store 处理 401 错误')
+        console.warn('Unable to import auth store for 401 handling')
       })
-      
-      // 返回统一的 401 错误格式
+
+      localStorage.removeItem('auth_token')
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login'
+      }
       const errorData = error.response.data || {}
       return Promise.reject({
         code: 401,
-        message: errorData.message || '请先登录',
+        message: errorData.message || 'Please log in',
         data: errorData.data || null
       })
     }
-    
-    // 后端返回的其他错误
+
     if (error.response.data) {
       return Promise.reject(error.response.data)
     }
-    // HTTP 状态码错误
+
     return Promise.reject({
       success: false,
-      message: `请求失败 (${error.response.status})`,
+      message: `Request failed (${error.response.status})`,
       code: error.response.status
     })
   }
@@ -83,8 +74,52 @@ apiClient.interceptors.response.use(
 const api = {
   auth: {
     checkLogin: () => apiClient.get('/auth/check'),
-    login: (username, password) => apiClient.post('/auth/login', { username, password }),
-    logout: () => apiClient.post('/auth/logout')
+    sendCode: (email) => apiClient.post('/auth/send-code', { email }),
+    register: (payload) => apiClient.post('/auth/register', payload),
+    login: (payload) => apiClient.post('/auth/login', payload),
+    logout: () => apiClient.post('/auth/logout'),
+    getProfile: () => apiClient.get('/auth/profile'),
+    updateProfile: (payload) => apiClient.put('/auth/profile', payload),
+    changePassword: (payload) => apiClient.post('/auth/password', payload),
+    verifyPassword: (payload) => apiClient.post('/auth/verify-password', payload),
+    forgotPassword: (payload) => apiClient.post('/auth/forgot-password', payload),
+    resetPassword: (payload) => apiClient.post('/auth/reset-password', payload),
+    uploadAvatar: (file) => {
+      const form = new FormData()
+      form.append('avatar', file)
+      return apiClient.post('/auth/avatar', form, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      })
+    },
+    sendChangeEmailCode: (newEmail) => {
+      return apiClient.post('/auth/change-email/send-code', { new_email: newEmail })
+    },
+    sendOldEmailCode: () => {
+      return apiClient.post('/auth/change-email/send-old-code')
+    },
+    sendNewEmailCode: (newEmail) => {
+      return apiClient.post('/auth/change-email/send-new-code', { new_email: newEmail })
+    },
+    verifyOldEmailCode: (data) => {
+      return apiClient.post('/auth/change-email/verify-old-code', { code: data.code })
+    },
+    verifyChangeEmail: (data) => {
+      return apiClient.post('/auth/change-email/verify', {
+        new_email: data.newEmail,
+        old_code: data.oldEmailCode,
+        new_code: data.newEmailCode,
+        username: data.username
+      })
+    },
+    updateProfileOnly: (username) => {
+      return apiClient.put('/auth/update-profile', { username })
+    },
+    checkUsernameExists: (username) => {
+      return apiClient.post('/auth/check-username', { username })
+    },
+    checkEmailExists: (email) => {
+      return apiClient.post('/auth/check-email', { email })
+    }
   },
   stats: {
     get: () => apiClient.get('/stats')
@@ -139,7 +174,6 @@ const api = {
   messages: {
     clear: (accountId) => apiClient.post('/messages/clear', { account_id: accountId })
   },
-  // 添加通用方法，支持直接调用
   get: (url, config) => apiClient.get(url, config),
   post: (url, data, config) => apiClient.post(url, data, config),
   put: (url, data, config) => apiClient.put(url, data, config),
@@ -148,4 +182,3 @@ const api = {
 
 export default api
 export { apiClient }
-

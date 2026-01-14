@@ -18,18 +18,14 @@
     </div>
     
     <!-- 登录对话框 -->
-    <LoginDialog v-model="authStore.showLoginDialog" />
   </div>
 </template>
 
 <script setup>
 import { ref } from 'vue'
-import { useAuthStore } from '../stores/auth'
 import TopNavbar from '../components/layout/TopNavbar.vue'
 import SideNavbar from '../components/layout/SideNavbar.vue'
-import LoginDialog from '../components/LoginDialog.vue'
 
-const authStore = useAuthStore()
 const sidebarCollapsed = ref(false)
 </script>
 

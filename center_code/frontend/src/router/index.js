@@ -4,6 +4,24 @@ import MainLayout from '../layouts/MainLayout.vue'
 
 const routes = [
   {
+    path: '/login',
+    name: 'Login',
+    component: () => import('../views/Login.vue'),
+    meta: { guestOnly: true, title: 'Login' }
+  },
+  {
+    path: '/register',
+    name: 'Register',
+    component: () => import('../views/Register.vue'),
+    meta: { guestOnly: true, title: 'Register' }
+  },
+  {
+    path: '/reset-password',
+    name: 'ResetPassword',
+    component: () => import('../views/ResetPassword.vue'),
+    meta: { guestOnly: true, title: 'Reset Password' }
+  },
+  {
     path: '/',
     component: MainLayout,
     redirect: '/dashboard',
@@ -12,56 +30,64 @@ const routes = [
         path: 'dashboard',
         name: 'Dashboard',
         component: () => import('../views/Dashboard.vue'),
-        meta: { requiresAuth: true, title: '首页' }
+        meta: { requiresAuth: true, title: 'Dashboard' }
       },
       {
         path: 'publish',
         name: 'Publish',
         component: () => import('../views/Publish.vue'),
-        meta: { requiresAuth: true, title: '立即发布' }
+        meta: { requiresAuth: true, title: 'Publish' }
       },
       {
         path: 'publish-plan',
         name: 'PublishPlan',
         component: () => import('../views/PublishPlan.vue'),
-        meta: { requiresAuth: true, title: '发布计划' }
+        meta: { requiresAuth: true, title: 'Publish Plan' }
       },
       {
         path: 'accounts',
         name: 'Accounts',
         component: () => import('../views/Accounts.vue'),
-        meta: { requiresAuth: true, title: '授权管理' }
+        meta: { requiresAuth: true, title: 'Accounts' }
       },
       {
         path: 'data-center',
         name: 'DataCenter',
         component: () => import('../views/DataCenter.vue'),
-        meta: { requiresAuth: true, title: '数据中心' }
+        meta: { requiresAuth: true, title: 'Data Center' }
       },
       {
         path: 'merchants',
         name: 'Merchants',
         component: () => import('../views/Merchants.vue'),
-        meta: { requiresAuth: true, title: '商家管理' }
+        meta: { requiresAuth: true, title: 'Merchants' }
       },
       {
         path: 'video-library',
         name: 'VideoLibrary',
         component: () => import('../views/VideoLibrary.vue'),
-        meta: { requiresAuth: true, title: '云视频库' }
+        meta: { requiresAuth: true, title: 'Video Library' }
       },
       {
         path: 'video-editor',
         name: 'VideoEditor',
-        component: () => import('../views/VideoLibrary.vue'),
-        meta: { requiresAuth: true, title: 'AI视频剪辑' }
-      }
+        component: () => import('../views/VideoEditorView.vue'),
+        meta: { requiresAuth: true, title: 'Video Editor' }
+      },
+      {
+        path: 'profile',
+        name: 'Profile',
+        component: () => import('../views/Profile.vue'),
+        meta: { requiresAuth: true, title: 'Profile' }
+      },
+
     ]
   },
   {
     path: '/login-helper',
     name: 'LoginHelper',
-    component: () => import('../views/LoginHelper.vue')
+    component: () => import('../views/LoginHelper.vue'),
+    meta: { requiresAuth: true }
   },
   {
     path: '/test',
@@ -77,51 +103,36 @@ const router = createRouter({
 
 router.beforeEach(async (to, from, next) => {
   const authStore = useAuthStore()
-  
-  // 如果路由需要认证，先检查登录状态
-  if (to.meta.requiresAuth) {
-    // 如果正在检查登录状态，等待检查完成
-    if (authStore.isCheckingLogin) {
-      // 等待检查完成（轮询等待，最多等待 5 秒）
-      let waitCount = 0
-      while (authStore.isCheckingLogin && waitCount < 50) {
-        await new Promise(resolve => setTimeout(resolve, 100))
-        waitCount++
+
+  const needsAuth = to.meta.requiresAuth
+  const isGuestOnly = to.meta.guestOnly
+
+  if (needsAuth) {
+    if (authStore.isLoggedIn) {
+      return next()
+    }
+    if (authStore.token) {
+      const ok = await authStore.checkLogin()
+      if (ok) {
+        return next()
       }
     }
-    
-    // 如果还没有检查过登录状态（不在检查中且未登录），先检查
-    if (!authStore.isCheckingLogin && !authStore.isLoggedIn) {
-      // 等待登录检查完成
-      const isLoggedIn = await authStore.checkLogin()
-      
-      // 检查完成后，如果仍未登录，显示登录对话框
-      if (!isLoggedIn) {
-        authStore.showLoginDialog = true
-        // 注意：这里仍然允许导航，让用户看到页面和登录对话框
-        // 如果希望阻止未登录用户访问，可以改为：next(false) 或 next('/login')
-      }
-    } else if (authStore.isLoggedIn) {
-      // 已登录，确保不显示登录对话框
-      authStore.showLoginDialog = false
-    } else if (!authStore.isLoggedIn && !authStore.isCheckingLogin) {
-      // 未登录且不在检查中，显示登录对话框
-      authStore.showLoginDialog = true
-    }
-  } else {
-    // 不需要认证的路由，确保不显示登录对话框
-    authStore.showLoginDialog = false
+    return next('/login')
   }
-  
-  // 允许导航（即使未登录也允许，让用户看到登录对话框）
-  // 如果需要更严格的控制，可以在未登录时阻止导航：
-  // if (to.meta.requiresAuth && !authStore.isLoggedIn) {
-  //   next(false) // 阻止导航
-  // } else {
-  //   next()
-  // }
-  next()
+
+  if (isGuestOnly) {
+    if (authStore.isLoggedIn) {
+      return next('/')
+    }
+    if (authStore.token) {
+      const ok = await authStore.checkLogin()
+      if (ok) {
+        return next('/')
+      }
+    }
+  }
+
+  return next()
 })
 
 export default router
-

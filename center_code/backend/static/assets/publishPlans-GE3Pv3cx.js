@@ -1,0 +1,1 @@
+import{I as n}from"./index-Cc1A4YXN.js";const t=s=>n.get("/publish-plans",{params:s}),e=s=>n.post("/publish-plans",s),p=(s,a)=>n.put(`/publish-plans/${s}`,a),u=s=>n.delete(`/publish-plans/${s}`),i=(s,a)=>n.post(`/publish-plans/${s}/videos`,a),o=(s,a)=>n.post(`/publish-plans/${s}/save-info`,a);export{i as a,e as c,u as d,t as g,o as s,p as u};

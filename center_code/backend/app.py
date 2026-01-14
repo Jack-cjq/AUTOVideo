@@ -90,8 +90,8 @@ if is_production:
 # 配置 CORS，允许携带凭证
 # 开发环境允许所有 localhost 和 127.0.0.1 的端口
 cors_origins = [
-    'http://localhost:3001', 'http://localhost:3002', 'http://localhost:5173',
-    'http://127.0.0.1:3001', 'http://127.0.0.1:3002', 'http://127.0.0.1:5173'
+    'http://localhost:3001', 'http://localhost:3002', 'http://localhost:3003', 'http://localhost:5173',
+    'http://127.0.0.1:3001', 'http://127.0.0.1:3002', 'http://127.0.0.1:3003', 'http://127.0.0.1:5173'
 ]
 # 如果环境变量设置了允许的源，则使用环境变量
 if os.getenv('CORS_ORIGINS'):
@@ -141,6 +141,16 @@ def init_db():
         # 创建表
         Base.metadata.create_all(engine)
         print("✓ 数据库表初始化成功")
+        
+        # 修改用户名和邮箱列的排序规则为utf8mb4_bin，实现大小写敏感
+        with get_db() as db:
+            try:
+                db.execute(text("ALTER TABLE users MODIFY COLUMN username VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin;"))
+                db.execute(text("ALTER TABLE users MODIFY COLUMN email VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin;"))
+                print("✓ 用户名和邮箱列已设置为大小写敏感")
+            except Exception as e:
+                # 如果表不存在或列不存在，忽略错误
+                print(f"⚠️ 设置大小写敏感时出现警告: {e}")
     except Exception as e:
         error_msg = str(e)
         if "Access denied" in error_msg or "1045" in error_msg:
@@ -355,7 +365,8 @@ if __name__ == '__main__':
         app.run(
             debug=True,
             host='0.0.0.0',
-            port=port
+            port=port,
+            use_reloader=False
         )
     except OSError as e:
         if "以一种访问权限不允许的方式做了一个访问套接字的尝试" in str(e) or "permission denied" in str(e).lower():

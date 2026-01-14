@@ -7,7 +7,7 @@ import sys
 import os
 import json
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from utils import response_success, response_error, login_required
+from utils import response_success, response_error, login_required, has_valid_token
 from models import Account, Device, Message, VideoTask, ChatTask, ListenTask
 from db import get_db
 
@@ -155,7 +155,6 @@ def get_accounts():
         - 结果按创建时间倒序排列
     """
     try:
-        from flask import session
         device_id = request.args.get('device_id')
         platform = request.args.get('platform')
         login_status = request.args.get('login_status')
@@ -166,7 +165,7 @@ def get_accounts():
         # 如果只查询device_id，允许设备端调用（不需要登录）
         # 其他情况需要登录
         is_device_query = device_id and not platform and not login_status and not search
-        if not is_device_query and not session.get('logged_in'):
+        if not is_device_query and not has_valid_token():
             return response_error('请先登录', 401)
         
         with get_db() as db:

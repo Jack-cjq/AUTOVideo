@@ -33,7 +33,7 @@ def init_default_user():
                 return True
             
             # 创建默认用户
-            default_user = User(username='hbut')
+            default_user = User(username='hbut', email=os.getenv('DEFAULT_ADMIN_EMAIL', 'admin@example.com'), is_verified=True)
             default_user.set_password('dydy?123')
             
             db.add(default_user)

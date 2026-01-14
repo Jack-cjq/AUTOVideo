@@ -133,7 +133,6 @@
     </el-container>
 
     <!-- 登录对话框 -->
-    <LoginDialog v-model="authStore.showLoginDialog" />
 
     <!-- 设备管理对话框 -->
     <DeviceModal v-model="deviceModalVisible" />
@@ -153,7 +152,6 @@
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import { useStatsStore } from '../stores/stats'
-import LoginDialog from '../components/LoginDialog.vue'
 import DeviceModal from '../components/DeviceModal.vue'
 import AccountModal from '../components/AccountModal.vue'
 import VideoModal from '../components/VideoModal.vue'
@@ -193,7 +191,6 @@ onUnmounted(() => {
 
 const showDeviceModal = () => {
   if (!authStore.isLoggedIn) {
-    authStore.showLoginDialog = true
     return
   }
   deviceModalVisible.value = true
@@ -201,7 +198,6 @@ const showDeviceModal = () => {
 
 const showAccountModal = () => {
   if (!authStore.isLoggedIn) {
-    authStore.showLoginDialog = true
     return
   }
   accountModalVisible.value = true
@@ -209,7 +205,6 @@ const showAccountModal = () => {
 
 const showVideoModal = () => {
   if (!authStore.isLoggedIn) {
-    authStore.showLoginDialog = true
     return
   }
   videoModalVisible.value = true
@@ -217,7 +212,6 @@ const showVideoModal = () => {
 
 const showMessageModal = () => {
   if (!authStore.isLoggedIn) {
-    authStore.showLoginDialog = true
     return
   }
   messageModalVisible.value = true

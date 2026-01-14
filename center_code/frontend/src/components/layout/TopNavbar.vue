@@ -5,35 +5,34 @@
         <span class="logo-text">矩阵宝</span>
       </div>
       <div class="quick-actions">
-        <el-button type="primary" size="large" @click="handlePublish">
+        <el-button type="primary" size="large" @click="handlePublish"> 
           <el-icon><Plus /></el-icon>
           立即发布
         </el-button>
         <el-button type="primary" size="large" @click="handleAuthorize">
           <el-icon><Plus /></el-icon>
-          授权账号
+          添加授权
         </el-button>
       </div>
     </div>
-    
+
     <div class="navbar-right">
       <el-badge :value="messageCount" :hidden="messageCount === 0" class="icon-badge">
-        <el-icon class="navbar-icon" size="20"><Message /></el-icon>
+        <el-icon class="navbar-icon" size="20"><Message /></el-icon>   
       </el-badge>
       <el-badge :value="notificationCount" :hidden="notificationCount === 0" class="icon-badge">
-        <el-icon class="navbar-icon" size="20"><Bell /></el-icon>
+        <el-icon class="navbar-icon" size="20"><Bell /></el-icon>      
       </el-badge>
-      
+
       <el-dropdown @command="handleUserCommand">
         <div class="user-info">
-          <el-avatar :size="32" :src="userAvatar" />
-          <span class="username">{{ authStore.username || '用户' }}</span>
+          <el-avatar :size="32" :src="authStore.avatarUrl" />
+          <span class="username">{{ authStore.email || authStore.username || '用户' }}</span>
           <el-icon><ArrowDown /></el-icon>
         </div>
         <template #dropdown>
           <el-dropdown-menu>
-            <el-dropdown-item command="profile">个人中心</el-dropdown-item>
-            <el-dropdown-item command="settings">设置</el-dropdown-item>
+            <el-dropdown-item command="profile">个人资料</el-dropdown-item>
             <el-dropdown-item divided command="logout">退出登录</el-dropdown-item>
           </el-dropdown-menu>
         </template>
@@ -46,34 +45,27 @@
 import { ref } from 'vue'
 import { useAuthStore } from '../../stores/auth'
 import { useRouter } from 'vue-router'
-// 图标已在 main.js 中全局注册
 
 const authStore = useAuthStore()
 const router = useRouter()
 
 const messageCount = ref(0)
 const notificationCount = ref(0)
-const userAvatar = ref('')
 
 const handlePublish = () => {
   router.push('/publish')
 }
 
 const handleAuthorize = () => {
-  // TODO: 打开授权账号对话框
-  console.log('授权账号')
+  console.log('添加授权')
 }
 
-const handleUserCommand = (command) => {
+const handleUserCommand = async (command) => {
   if (command === 'logout') {
-    authStore.logout()
-    router.push('/')
+    await authStore.logout()
+    router.push('/login')
   } else if (command === 'profile') {
-    // TODO: 跳转到个人中心
-    console.log('个人中心')
-  } else if (command === 'settings') {
-    // TODO: 跳转到设置
-    console.log('设置')
+    router.push('/profile')
   }
 }
 </script>
@@ -158,4 +150,3 @@ const handleUserCommand = (command) => {
   color: #303133;
 }
 </style>
-

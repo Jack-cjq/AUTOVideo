@@ -23,7 +23,6 @@ onMounted(async () => {
   try {
     const isLoggedIn = await authStore.checkLogin()
     console.log('Login check completed, isLoggedIn:', isLoggedIn)
-    // checkLogin 内部已经处理了 showLoginDialog 的设置，这里不需要再设置
   } catch (error) {
     console.error('初始化失败:', error)
     // 即使检查登录失败，也显示页面（让用户看到登录对话框）

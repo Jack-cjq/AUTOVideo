@@ -2,89 +2,116 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import api from '../api'
 
+const TOKEN_KEY = 'auth_token'
+
 export const useAuthStore = defineStore('auth', () => {
-  const isLoggedIn = ref(false)
+  const token = ref(localStorage.getItem(TOKEN_KEY) || '')
+  const isLoggedIn = ref(!!token.value)
   const username = ref('')
-  const showLoginDialog = ref(false)
-  const isCheckingLogin = ref(false)  // 标记是否正在检查登录状态
+  const email = ref('')
+  const avatarUrl = ref('')
+  const isCheckingLogin = ref(false)
+
+  const setToken = (value) => {
+    token.value = value
+    if (value) {
+      localStorage.setItem(TOKEN_KEY, value)
+      isLoggedIn.value = true
+    } else {
+      localStorage.removeItem(TOKEN_KEY)
+      isLoggedIn.value = false
+    }
+  }
 
   const checkLogin = async () => {
-    // 如果正在检查，直接返回当前状态
+    if (!token.value) {
+      isLoggedIn.value = false
+      return false
+    }
+
     if (isCheckingLogin.value) {
       return isLoggedIn.value
     }
-    
+
     isCheckingLogin.value = true
     try {
-      console.log('Checking login status...')
       const res = await api.auth.checkLogin()
-      console.log('Login check response:', res)
       if (res && res.code === 200 && res.data && res.data.logged_in) {
         isLoggedIn.value = true
         username.value = res.data.username || ''
-        showLoginDialog.value = false  // 已登录，确保不显示登录对话框
-        console.log('User is logged in:', username.value)
+        email.value = res.data.email || ''
+        avatarUrl.value = res.data.avatar_url || ''
         return true
-      } else {
-        isLoggedIn.value = false
-        username.value = ''
-        console.log('User is not logged in')
-        // 如果未登录，显示登录对话框
-        showLoginDialog.value = true
-        return false
       }
+
+      setToken('')
+      username.value = ''
+      email.value = ''
+      avatarUrl.value = ''
+      return false
     } catch (error) {
-      console.error('Check login error:', error)
-      isLoggedIn.value = false
-      // 只有在网络错误时才显示登录对话框，如果是401等认证错误，说明确实未登录
-      if (!error.code || error.code === 500) {
-        // 网络错误或服务器错误，可能是后端未运行，显示登录对话框
-        console.log('Showing login dialog due to network/server error')
-        showLoginDialog.value = true
-      } else {
-        // 其他错误（如401），说明确实未登录
-        showLoginDialog.value = true
-      }
+      setToken('')
+      username.value = ''
+      email.value = ''
+      avatarUrl.value = ''
       return false
     } finally {
       isCheckingLogin.value = false
     }
   }
 
-  const login = async (usernameInput, password) => {
+  const login = async (payload) => {
     try {
-      const res = await api.auth.login(usernameInput, password)
-      if (res.code === 200) {
-        isLoggedIn.value = true
-        username.value = res.data.username || usernameInput
-        showLoginDialog.value = false
+      const res = await api.auth.login(payload)
+      const tokenValue = res?.data?.token
+      if (tokenValue) {
+        setToken(tokenValue)
+        username.value = res.data.username || payload.username || payload.email || ''
+        email.value = res.data.email || payload.email || ''
+        avatarUrl.value = res.data.avatar_url || ''
         return { success: true }
-      } else {
-        return { success: false, message: res.message || '登录失败' }
       }
+      return { success: false, message: res?.message || 'Login failed' }
     } catch (error) {
-      return { success: false, message: error.message || '登录失败' }
+      return { success: false, message: error.message || 'Login failed' }
+    }
+  }
+
+  const register = async (payload) => {
+    try {
+      const res = await api.auth.register(payload)
+      if (res.code === 201) {
+        return { success: true }
+      }
+      return { success: false, message: res.message || 'Register failed' }
+    } catch (error) {
+      return { success: false, message: error.message || 'Register failed' }
     }
   }
 
   const logout = async () => {
     try {
       await api.auth.logout()
-      isLoggedIn.value = false
-      username.value = ''
     } catch (error) {
       console.error('Logout error:', error)
+    } finally {
+      setToken('')
+      username.value = ''
+      email.value = ''
+      avatarUrl.value = ''
     }
   }
 
   return {
+    token,
     isLoggedIn,
     username,
-    showLoginDialog,
+    email,
+    avatarUrl,
     isCheckingLogin,
     checkLogin,
     login,
+    register,
     logout
   }
 })
-
