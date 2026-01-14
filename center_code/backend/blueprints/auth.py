@@ -13,6 +13,7 @@ from werkzeug.utils import secure_filename
 
 from utils import response_success, response_error, create_access_token, decode_access_token
 from models import User, EmailVerification
+from config import SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, SMTP_FROM, SMTP_USE_SSL, SMTP_USE_TLS
 from db import get_db
 
 
@@ -29,13 +30,13 @@ def _is_valid_email(email):
 
 
 def _send_verification_email(to_email, code):
-    smtp_host = os.getenv('SMTP_HOST')
-    smtp_port = int(os.getenv('SMTP_PORT', '587'))
-    smtp_user = os.getenv('SMTP_USER')
-    smtp_password = os.getenv('SMTP_PASSWORD')
-    smtp_from = os.getenv('SMTP_FROM', smtp_user or '')
-    use_tls = os.getenv('SMTP_USE_TLS', 'true').lower() == 'true'
-    use_ssl = os.getenv('SMTP_USE_SSL', 'false').lower() == 'true'
+    smtp_host = SMTP_HOST
+    smtp_port = SMTP_PORT
+    smtp_user = SMTP_USER
+    smtp_password = SMTP_PASSWORD
+    smtp_from = SMTP_FROM
+    use_tls = SMTP_USE_TLS
+    use_ssl = SMTP_USE_SSL
 
     if not smtp_host or not smtp_user or not smtp_password or not smtp_from:
         raise RuntimeError('SMTP config missing')

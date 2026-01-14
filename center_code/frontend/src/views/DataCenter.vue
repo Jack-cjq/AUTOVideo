@@ -145,7 +145,7 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { getVideoStats, getAccountRanking, getVideoStatsByAccount } from '../api/dataCenter'
+import { getVideoStats, getAccountRanking } from '../api/dataCenter'
 import api from '../api'
 
 const loading = ref(false)
@@ -249,7 +249,7 @@ const handleAccountClick = async (account) => {
 const loadVideoStats = async (accountId) => {
   try {
     videoStatsLoading.value = true
-    const response = await getVideoStatsByAccount({ account_id: accountId })
+    const response = await getVideoStats({ account_id: accountId })
     if (response.code === 200) {
       videoStatsList.value = response.data.videos
     }

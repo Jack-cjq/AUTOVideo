@@ -430,7 +430,7 @@ const handleNewEmailInput = () => {
   const isEmailValid = emailRegex.test(emailForm.email) && emailForm.email !== originalEmail.value
   
   // 只有新邮箱有效且与原邮箱不同时，才能发送新邮箱验证码
-  canSendNewCode.value = isEmailValid && oldEmailVerified.value
+  canSendNewCode.value = isEmailValid
   
   // 如果用户更改了新邮箱，重置新邮箱验证状态
   if (isEmailValid) {
