@@ -16,3 +16,9 @@ openai>=1.0.0
 
 # 若用OpenCV，需安装：
 opencv-python==4.8.1.78
+
+# 腾讯云COS SDK
+cos-python-sdk-v5>=1.9.24
+
+# 环境变量管理
+python-dotenv>=1.0.0

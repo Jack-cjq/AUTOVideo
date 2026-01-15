@@ -5,10 +5,23 @@ from flask import Blueprint, request
 from datetime import datetime
 import sys
 import os
+from werkzeug.utils import secure_filename
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils import response_success, response_error, login_required
 from models import VideoLibrary
 from db import get_db
+try:
+    from utils.cos_service import (
+        upload_file_to_cos, 
+        upload_file_data_to_cos,
+        delete_file_from_cos,
+        generate_cos_key,
+        get_file_url
+    )
+    COS_AVAILABLE = True
+except ImportError:
+    COS_AVAILABLE = False
+    print("警告：腾讯云COS SDK未安装，视频库将使用本地存储")
 
 video_library_bp = Blueprint('video_library', __name__, url_prefix='/api/video-library')
 
@@ -116,17 +129,26 @@ def upload_video():
     路径: /api/video-library
     认证: 需要登录
     
-    请求体 (JSON):
-        {
-            "video_name": "string",       # 必填，视频名称
-            "video_url": "string",        # 必填，视频URL
-            "thumbnail_url": "string",   # 可选，缩略图URL
-            "video_size": int,            # 可选，文件大小（字节）
-            "duration": int,              # 可选，视频时长（秒）
-            "platform": "string",        # 可选，来源平台
-            "tags": "string",             # 可选，标签（逗号分隔）
-            "description": "string"       # 可选，描述
-        }
+    请求体 (multipart/form-data 或 JSON):
+        - 如果上传文件：使用 multipart/form-data
+            file: 视频文件（必填）
+            thumbnail: 缩略图文件（可选）
+            video_name: 视频名称（可选，默认使用文件名）
+            platform: 来源平台（可选）
+            tags: 标签（可选，逗号分隔）
+            description: 描述（可选）
+        
+        - 如果只保存信息：使用 JSON
+            {
+                "video_name": "string",       # 必填，视频名称
+                "video_url": "string",        # 必填，视频URL（COS URL或本地URL）
+                "thumbnail_url": "string",   # 可选，缩略图URL
+                "video_size": int,            # 可选，文件大小（字节）
+                "duration": int,              # 可选，视频时长（秒）
+                "platform": "string",        # 可选，来源平台
+                "tags": "string",             # 可选，标签（逗号分隔）
+                "description": "string"       # 可选，描述
+            }
     
     返回数据:
         成功 (201):
@@ -136,7 +158,8 @@ def upload_video():
             "data": {
                 "id": int,
                 "video_name": "string",
-                "video_url": "string"
+                "video_url": "string",  # COS URL或本地URL
+                "thumbnail_url": "string"
             }
         }
         
@@ -148,38 +171,136 @@ def upload_video():
         }
     
     说明:
-        - 此接口仅保存视频信息到数据库，不处理实际文件上传
-        - 实际文件上传需要先上传到文件服务器，然后调用此接口保存信息
+        - 如果提供了文件，会自动上传到腾讯云COS
+        - 如果只提供了URL，则直接保存到数据库
     """
     try:
-        data = request.json
-        video_name = data.get('video_name')
-        video_url = data.get('video_url')
-        
-        if not video_name or not video_url:
-            return response_error('video_name and video_url are required', 400)
-        
-        with get_db() as db:
-            video = VideoLibrary(
-                video_name=video_name,
-                video_url=video_url,
-                thumbnail_url=data.get('thumbnail_url'),
-                video_size=data.get('video_size'),
-                duration=data.get('duration'),
-                platform=data.get('platform'),
-                tags=data.get('tags'),
-                description=data.get('description')
-            )
-            db.add(video)
-            db.flush()
-            db.commit()
+        # 检查是否有文件上传
+        if 'file' in request.files and COS_AVAILABLE:
+            # 处理文件上传
+            file = request.files['file']
             
-            return response_success({
-                'id': video.id,
-                'video_name': video.video_name,
-                'video_url': video.video_url
-            }, 'Video uploaded', 201)
+            if file.filename == '':
+                return response_error('No file selected', 400)
+            
+            # 检查文件类型
+            allowed_extensions = {'.mp4', '.mov', '.avi', '.flv', '.wmv', '.webm', '.mkv'}
+            filename = secure_filename(file.filename)
+            file_ext = os.path.splitext(filename)[1].lower()
+            
+            if file_ext not in allowed_extensions:
+                return response_error(f'File type not allowed. Allowed types: {", ".join(allowed_extensions)}', 400)
+            
+            # 获取其他参数
+            video_name = request.form.get('video_name') or filename
+            platform = request.form.get('platform')
+            tags = request.form.get('tags')
+            description = request.form.get('description')
+            
+            # 先保存到临时文件
+            import tempfile
+            temp_dir = tempfile.gettempdir()
+            temp_file_path = os.path.join(temp_dir, filename)
+            file.save(temp_file_path)
+            
+            try:
+                # 生成COS键
+                cos_key = generate_cos_key('video', filename)
+                
+                # 上传到COS
+                upload_result = upload_file_to_cos(temp_file_path, cos_key)
+                
+                if not upload_result['success']:
+                    return response_error(f'上传到COS失败: {upload_result["message"]}', 500)
+                
+                video_url = upload_result['url']
+                video_size = os.path.getsize(temp_file_path)
+                
+                # 处理缩略图
+                thumbnail_url = None
+                if 'thumbnail' in request.files:
+                    thumbnail_file = request.files['thumbnail']
+                    if thumbnail_file.filename:
+                        thumbnail_temp_path = os.path.join(temp_dir, secure_filename(thumbnail_file.filename))
+                        thumbnail_file.save(thumbnail_temp_path)
+                        
+                        thumbnail_cos_key = generate_cos_key('thumbnail', secure_filename(thumbnail_file.filename))
+                        thumbnail_result = upload_file_to_cos(thumbnail_temp_path, thumbnail_cos_key)
+                        
+                        if thumbnail_result['success']:
+                            thumbnail_url = thumbnail_result['url']
+                        
+                        # 清理临时文件
+                        try:
+                            os.remove(thumbnail_temp_path)
+                        except:
+                            pass
+                
+                # 保存到数据库
+                with get_db() as db:
+                    video = VideoLibrary(
+                        video_name=video_name,
+                        video_url=video_url,
+                        thumbnail_url=thumbnail_url,
+                        video_size=video_size,
+                        platform=platform,
+                        tags=tags,
+                        description=description
+                    )
+                    db.add(video)
+                    db.flush()
+                    db.commit()
+                    
+                    return response_success({
+                        'id': video.id,
+                        'video_name': video.video_name,
+                        'video_url': video.video_url,
+                        'thumbnail_url': video.thumbnail_url
+                    }, 'Video uploaded to COS', 201)
+                
+            finally:
+                # 清理临时文件
+                try:
+                    os.remove(temp_file_path)
+                except:
+                    pass
+        
+        else:
+            # 处理JSON数据（只保存信息，不上传文件）
+            data = request.json
+            if not data:
+                return response_error('No file or data provided', 400)
+            
+            video_name = data.get('video_name')
+            video_url = data.get('video_url')
+            
+            if not video_name or not video_url:
+                return response_error('video_name and video_url are required', 400)
+            
+            with get_db() as db:
+                video = VideoLibrary(
+                    video_name=video_name,
+                    video_url=video_url,
+                    thumbnail_url=data.get('thumbnail_url'),
+                    video_size=data.get('video_size'),
+                    duration=data.get('duration'),
+                    platform=data.get('platform'),
+                    tags=data.get('tags'),
+                    description=data.get('description')
+                )
+                db.add(video)
+                db.flush()
+                db.commit()
+                
+                return response_success({
+                    'id': video.id,
+                    'video_name': video.video_name,
+                    'video_url': video.video_url
+                }, 'Video uploaded', 201)
+                
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return response_error(str(e), 500)
 
 
@@ -347,7 +468,7 @@ def delete_video(video_id):
         }
     
     说明:
-        - 此接口仅删除数据库记录，不删除实际视频文件
+        - 如果视频URL是COS URL，会同时删除COS中的文件
         - 如果视频不存在，返回 404 错误
     """
     try:
@@ -356,6 +477,51 @@ def delete_video(video_id):
             
             if not video:
                 return response_error('Video not found', 404)
+            
+            # 如果视频URL是COS URL，尝试删除COS中的文件
+            if COS_AVAILABLE:
+                video_url = video.video_url
+                from config import COS_DOMAIN, COS_SCHEME, COS_BUCKET, COS_REGION
+                if video_url and ('cos.' in video_url or (COS_DOMAIN and COS_DOMAIN in video_url)):
+                    try:
+                        # 从URL中提取COS键
+                        # URL格式：https://bucket.cos.region.myqcloud.com/key 或 https://domain/key
+                        if COS_DOMAIN and COS_DOMAIN in video_url:
+                            cos_key = video_url.replace(COS_DOMAIN.rstrip('/') + '/', '').lstrip('/')
+                        else:
+                            # 从默认域名中提取
+                            prefix = f"{COS_SCHEME}://{COS_BUCKET}.cos.{COS_REGION}.myqcloud.com/"
+                            if video_url.startswith(prefix):
+                                cos_key = video_url.replace(prefix, '').lstrip('/')
+                            else:
+                                cos_key = None
+                        
+                        if cos_key:
+                            delete_result = delete_file_from_cos(cos_key)
+                            if not delete_result['success']:
+                                print(f"删除COS文件失败: {delete_result['message']}")
+                    except Exception as e:
+                        print(f"删除COS文件时出错: {e}")
+                        # 继续删除数据库记录
+                
+                # 如果缩略图URL是COS URL，也尝试删除
+                if video.thumbnail_url:
+                    thumbnail_url = video.thumbnail_url
+                    if thumbnail_url and ('cos.' in thumbnail_url or (COS_DOMAIN and COS_DOMAIN in thumbnail_url)):
+                        try:
+                            if COS_DOMAIN and COS_DOMAIN in thumbnail_url:
+                                cos_key = thumbnail_url.replace(COS_DOMAIN.rstrip('/') + '/', '').lstrip('/')
+                            else:
+                                prefix = f"{COS_SCHEME}://{COS_BUCKET}.cos.{COS_REGION}.myqcloud.com/"
+                                if thumbnail_url.startswith(prefix):
+                                    cos_key = thumbnail_url.replace(prefix, '').lstrip('/')
+                                else:
+                                    cos_key = None
+                            
+                            if cos_key:
+                                delete_file_from_cos(cos_key)
+                        except Exception as e:
+                            print(f"删除COS缩略图时出错: {e}")
             
             db.delete(video)
             db.commit()

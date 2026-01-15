@@ -33,8 +33,11 @@ export const getOutputs = () => {
   return apiClient.get('/outputs')
 }
 
-export const deleteOutput = (filename) => {
-  return apiClient.post('/output/delete', { filename })
+export const deleteOutput = (filename, cosKey = null) => {
+  return apiClient.post('/output/delete', { 
+    filename,
+    cos_key: cosKey  // 如果是从COS获取的列表，传递cos_key
+  })
 }
 
 export const downloadVideo = (filename) => {

@@ -353,8 +353,9 @@ def delete_material():
                 
                 if tasks:
                     task_ids = [str(t.id) for t in tasks[:10]]
+                    task_count = len(tasks)
                     return response_error(
-                        f'该素材被任务引用，无法删除（任务ID示例：{",".join(task_ids)}）',
+                        f'该素材被 {task_count} 个任务引用，无法删除。如需强制删除，请设置 force=true（任务ID示例：{",".join(task_ids)}）',
                         409
                     )
             

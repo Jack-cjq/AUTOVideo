@@ -16,6 +16,7 @@ from db import get_db
 # 导入工具函数
 from utils.ai import deepseek_generate_copies
 from utils.baidu_tts import synthesize_speech
+from utils.baidu_asr import recognize_speech
 from utils.subtitles import generate_srt_items, new_srt_filename, render_srt
 
 logger = logging.getLogger(__name__)
@@ -255,6 +256,72 @@ def ai_tts_synthesize():
         return response_error(f"TTS 合成失败：{e}", 500)
 
 
+@ai_bp.route('/tts/delete-temp', methods=['POST'])
+@login_required
+def ai_tts_delete_temp():
+    """
+    删除临时TTS文件接口
+    
+    请求方法: POST
+    路径: /api/ai/tts/delete-temp
+    认证: 需要登录
+    
+    请求体 (JSON):
+        {
+            "preview_url": "string"  # 临时文件的预览URL，如 "/uploads/tts/tts_xxx.mp3"
+        }
+    
+    返回数据:
+        成功 (200):
+        {
+            "code": 200,
+            "message": "ok"
+        }
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        preview_url = (data.get("preview_url") or "").strip()
+        
+        if not preview_url:
+            return response_error("preview_url 不能为空", 400)
+        
+        # 从预览URL中提取文件路径
+        # preview_url 格式: "/uploads/tts/tts_xxx.mp3"
+        if not preview_url.startswith("/uploads/tts/"):
+            return response_error("只能删除临时TTS文件（路径必须包含 /tts/）", 400)
+        
+        # 提取文件名
+        filename = preview_url.replace("/uploads/tts/", "").lstrip("/")
+        if not filename.startswith("tts_") or not filename.endswith(".mp3"):
+            return response_error("无效的临时TTS文件名", 400)
+        
+        # 构建完整文件路径
+        file_path = os.path.join(TTS_DIR, filename)
+        
+        # 安全检查：确保文件在 TTS_DIR 目录内
+        file_path_abs = os.path.abspath(file_path)
+        tts_dir_abs = os.path.abspath(TTS_DIR)
+        if not file_path_abs.startswith(tts_dir_abs):
+            return response_error("无效的文件路径", 400)
+        
+        # 删除文件
+        if os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+                logger.info(f"已删除临时TTS文件: {file_path}")
+                return response_success(None, "临时文件已删除")
+            except Exception as e:
+                logger.exception(f"删除临时TTS文件失败: {file_path}")
+                return response_error(f"删除文件失败：{e}", 500)
+        else:
+            # 文件不存在，也返回成功（可能已经被删除）
+            return response_success(None, "文件不存在或已删除")
+    
+    except Exception as e:
+        logger.exception("删除临时TTS文件失败")
+        return response_error(f"删除失败：{e}", 500)
+
+
 @ai_bp.route('/subtitle/srt', methods=['POST'])
 @login_required
 def ai_subtitle_srt():
@@ -267,8 +334,9 @@ def ai_subtitle_srt():
     
     请求体 (JSON):
         {
-            "text": "string",             # 必填，文案文本
-            "audio_material_id": int      # 必填，音频素材ID（用于获取时长）
+            "text": "string",             # 可选，文案文本（如果为空且auto_recognize=true，则从音频识别）
+            "audio_material_id": int,      # 必填，音频素材ID（用于获取时长和识别文字）
+            "auto_recognize": bool        # 可选，是否自动从音频识别文字（默认false）
         }
     
     返回数据:
@@ -285,12 +353,16 @@ def ai_subtitle_srt():
     """
     try:
         data = request.get_json(silent=True) or {}
+        logger.info(f"收到字幕生成请求: {data}")
+        
         text = (data.get("text") or "").strip()
         audio_material_id = data.get("audio_material_id")
+        auto_recognize = data.get("auto_recognize", False)  # 是否自动从音频识别文字
+        
+        logger.info(f"解析参数: text长度={len(text)}, audio_material_id={audio_material_id}, auto_recognize={auto_recognize}")
 
-        if not text:
-            return response_error("text 不能为空", 400)
         if audio_material_id is None:
+            logger.error("audio_material_id 为空")
             return response_error("audio_material_id 不能为空（用于取配音时长）", 400)
 
         try:
@@ -302,49 +374,105 @@ def ai_subtitle_srt():
         with get_db() as db:
             mat = db.query(Material).filter(Material.id == audio_material_id).first()
             if not mat or mat.type != "audio":
+                logger.error(f"音频素材不存在或类型错误: audio_material_id={audio_material_id}, mat={mat}")
                 return response_error("audio_material_id 不存在或类型不是 audio", 400)
 
-            abs_audio = os.path.join(BASE_DIR, mat.path)
+            # 标准化路径（处理Windows路径问题）
+            abs_audio = os.path.normpath(os.path.join(BASE_DIR, mat.path))
+            logger.info(f"查找音频文件: 相对路径={mat.path}, 绝对路径={abs_audio}")
+            
             if not os.path.isfile(abs_audio):
-                return response_error(f"音频文件不存在：{mat.path}", 400)
+                logger.error(f"音频文件不存在: {abs_audio}")
+                return response_error(f"音频文件不存在：{mat.path}（绝对路径：{abs_audio}）", 400)
+            
+            logger.info(f"音频文件验证成功: {abs_audio}")
+
+        # 如果文案为空且启用了自动识别，从音频中识别文字
+        recognized_text = None
+        if not text and auto_recognize:
+            try:
+                logger.info("开始从音频识别文字...")
+                # 检测音频格式（recognize_speech会自动处理格式转换）
+                text = recognize_speech(abs_audio)
+                recognized_text = text
+                logger.info(f"语音识别成功，识别出 {len(text)} 个字符: {text[:100]}...")
+                
+                if not text:
+                    return response_error("语音识别结果为空，请手动输入文案", 400)
+            except Exception as asr_error:
+                logger.exception(f"语音识别失败: {asr_error}")
+                return response_error(f"从音频识别文字失败：{str(asr_error)}，请手动输入文案", 500)
+        
+        # 如果仍然没有文案，返回错误
+        if not text:
+            logger.error("文案为空且未启用自动识别")
+            return response_error("text 不能为空，或者启用 auto_recognize 参数从音频自动识别", 400)
 
         # 获取音频时长（需要 ffmpeg-python）
         try:
             import ffmpeg
+            logger.info(f"开始获取音频时长: {abs_audio}")
             probe = ffmpeg.probe(abs_audio)
             fmt = probe.get("format") or {}
             duration = float(fmt.get("duration") or 0.0)
+            logger.info(f"音频时长获取成功: {duration} 秒")
         except ImportError:
+            logger.error("缺少 ffmpeg-python 库")
             return response_error("缺少 ffmpeg-python，无法获取音频时长", 500)
         except Exception as e:
-            return response_error(f"获取音频时长失败：{e}", 500)
+            logger.exception(f"获取音频时长失败: {e}")
+            return response_error(f"获取音频时长失败：{str(e)}", 500)
 
         if duration <= 0:
+            logger.error(f"音频时长无效: {duration}")
             return response_error("音频时长无效，无法生成字幕", 500)
 
         # 生成字幕
         try:
+            logger.info(f"开始生成字幕: 文案长度={len(text)}, 时长={duration}秒")
             items = generate_srt_items(text=text, total_duration_sec=duration)
             srt_text = render_srt(items)
+            logger.info(f"字幕生成成功: {len(items)} 条字幕项")
         except Exception as e:
-            return response_error(f"生成字幕失败：{e}", 500)
+            logger.exception(f"生成字幕失败: {e}")
+            return response_error(f"生成字幕失败：{str(e)}", 500)
+
+        # 确保字幕目录存在
+        try:
+            os.makedirs(SUBTITLE_DIR, exist_ok=True)
+        except Exception as e:
+            logger.error(f"创建字幕目录失败: {e}")
+            return response_error(f"创建字幕目录失败：{str(e)}", 500)
 
         # 保存字幕文件
-        name = new_srt_filename("tts")
-        abs_path = os.path.join(SUBTITLE_DIR, name)
-        
-        with open(abs_path, "w", encoding="utf-8") as f:
-            f.write(srt_text)
+        try:
+            name = new_srt_filename("tts")
+            abs_path = os.path.join(SUBTITLE_DIR, name)
+            logger.info(f"保存字幕文件: {abs_path}")
+            
+            with open(abs_path, "w", encoding="utf-8") as f:
+                f.write(srt_text)
+            
+            logger.info(f"字幕文件保存成功: {abs_path}, 大小={os.path.getsize(abs_path)} 字节")
+        except Exception as e:
+            logger.exception(f"保存字幕文件失败: {e}")
+            return response_error(f"保存字幕文件失败：{str(e)}", 500)
 
         rel_path = os.path.relpath(abs_path, BASE_DIR).replace(os.sep, "/")
         uploads_rel = os.path.relpath(abs_path, os.path.join(BASE_DIR, 'uploads')).replace(os.sep, '/')
         preview_url = f"/uploads/{uploads_rel}"
 
-        return response_success({
+        result_data = {
             "path": rel_path,
             "preview_url": preview_url,
             "duration": duration,
-        }, "ok")
+        }
+        
+        # 如果是从音频识别的文字，也返回识别结果
+        if recognized_text:
+            result_data["recognized_text"] = recognized_text
+
+        return response_success(result_data, "ok")
     
     except Exception as e:
         logger.exception("Subtitle generation failed")

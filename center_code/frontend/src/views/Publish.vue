@@ -182,6 +182,27 @@
                 </el-select>
               </el-form-item>
               <el-button type="primary" link @click="loadVideoLibrary">刷新视频库</el-button>
+              <el-form-item label="视频预览" style="margin-top: 20px;">
+                <div class="video-preview">
+                  <video
+                    v-if="form.video_url"
+                    :key="form.video_url"
+                    :src="getVideoPreviewUrl(form.video_url)"
+                    controls
+                    preload="metadata"
+                    style="max-width: 100%; max-height: 300px;"
+                    @error="handleVideoError"
+                    @loadedmetadata="handleVideoLoaded"
+                    @loadstart="handleVideoLoadStart"
+                  >
+                    您的浏览器不支持视频播放
+                  </video>
+                  <div v-else class="preview-placeholder">
+                    <el-icon size="48"><VideoPlay /></el-icon>
+                    <p>请先选择视频</p>
+                  </div>
+                </div>
+              </el-form-item>
             </div>
           </el-card>
         </div>
@@ -882,11 +903,9 @@ const getVideoPreviewUrl = (url) => {
     // 从 API base URL 中提取基础 URL（去掉 /api 后缀）
     const baseUrl = apiBaseUrl.replace(/\/api\/?$/, '')
     const fullUrl = baseUrl + url
-    console.log('视频预览URL:', fullUrl)
     return fullUrl
   }
   // 如果已经是完整URL，直接返回
-  console.log('视频预览URL:', url)
   return url
 }
 
@@ -923,8 +942,6 @@ const handleVideoError = (event) => {
   }
   
   ElMessage.error(errorMsg)
-  console.error('视频URL:', src)
-  console.error('请检查：1. 文件是否存在 2. 后端路由是否正确 3. 网络请求是否成功')
 }
 
 // 视频加载开始

@@ -319,10 +319,20 @@ def uploaded_file(filename):
             return response
         
         upload_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'uploads')
-        file_path = os.path.join(upload_dir, filename)
+        
+        # 处理路径：URL中使用正斜杠，Windows需要转换为系统路径
+        # filename 可能是 "materials/videos/xxx.mp4"
+        # 需要转换为系统路径格式
+        filename_normalized = filename.replace('/', os.sep).replace('\\', os.sep)
+        file_path = os.path.join(upload_dir, filename_normalized)
+        
+        # 规范化路径（处理 .. 等）
+        file_path = os.path.normpath(file_path)
+        upload_dir = os.path.normpath(upload_dir)
         
         # 调试信息
         print(f"请求文件: {filename}")
+        print(f"规范化文件名: {filename_normalized}")
         print(f"上传目录: {upload_dir}")
         print(f"文件路径: {file_path}")
         print(f"文件是否存在: {os.path.exists(file_path)}")
@@ -332,15 +342,15 @@ def uploaded_file(filename):
         file_path_abs = os.path.abspath(file_path)
         if not file_path_abs.startswith(upload_dir_abs):
             print(f"路径安全检查失败: {file_path_abs} 不在 {upload_dir_abs} 内")
-            return {'error': 'Invalid file path'}, 403
+            return jsonify({'error': 'Invalid file path'}), 403
         
         if not os.path.exists(file_path):
             print(f"文件不存在: {file_path}")
-            return {'error': 'File not found'}, 404
+            return jsonify({'error': 'File not found'}), 404
         
         if not os.path.isfile(file_path):
             print(f"不是文件: {file_path}")
-            return {'error': 'Not a file'}, 400
+            return jsonify({'error': 'Not a file'}), 400
         # 获取文件的 MIME 类型
         mimetype, _ = mimetypes.guess_type(file_path)
         if not mimetype:
@@ -359,8 +369,20 @@ def uploaded_file(filename):
         
         # 使用 send_file 直接发送文件（支持嵌套路径）
         try:
+            # 确保文件路径是绝对路径
+            file_path_abs = os.path.abspath(file_path)
+            
+            # 再次检查文件是否存在
+            if not os.path.exists(file_path_abs):
+                print(f"文件不存在（绝对路径）: {file_path_abs}")
+                return jsonify({'error': 'File not found'}), 404
+            
+            if not os.path.isfile(file_path_abs):
+                print(f"不是文件（绝对路径）: {file_path_abs}")
+                return jsonify({'error': 'Not a file'}), 400
+            
             response = send_file(
-                file_path,
+                file_path_abs,
                 mimetype=mimetype,
                 as_attachment=False,
                 download_name=os.path.basename(filename)  # 下载时的文件名
@@ -374,14 +396,16 @@ def uploaded_file(filename):
             return response
         except Exception as e:
             print(f"发送文件时出错: {str(e)}")
+            print(f"文件路径: {file_path}")
+            print(f"绝对路径: {os.path.abspath(file_path) if 'file_path' in locals() else 'N/A'}")
             import traceback
             traceback.print_exc()
-            return {'error': f'Failed to send file: {str(e)}'}, 500
+            return jsonify({'error': f'Failed to send file: {str(e)}'}), 500
     except Exception as e:
         print(f"处理文件请求时出错: {str(e)}")
         import traceback
         traceback.print_exc()
-        return {'error': f'Internal server error: {str(e)}'}, 500
+        return jsonify({'error': f'Internal server error: {str(e)}'}), 500
 
 
 @app.route('/api/health', methods=['GET'])

@@ -2,14 +2,14 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { resolve } from 'path'
 
-// 从环境变量获取后端地址，默认使用5000端口（后端默认端口）
+// 从环境变量获取后端地址，默认使用8080端口（后端默认端口）
 // 可以通过环境变量 VITE_BACKEND_PORT 或 VITE_BACKEND_URL 配置
 // 例如：VITE_BACKEND_PORT=8081 或 VITE_BACKEND_URL=http://localhost:8081
 const getBackendUrl = () => {
   if (process.env.VITE_BACKEND_URL) {
     return process.env.VITE_BACKEND_URL
   }
-  const port = process.env.VITE_BACKEND_PORT || '5000'
+  const port = process.env.VITE_BACKEND_PORT || '8080'  // 默认8080端口
   return `http://localhost:${port}`
 }
 
@@ -54,6 +54,9 @@ export default defineConfig({
         secure: false,
         rewrite: (path) => path,  // 保持路径不变
         configure: (proxy, _options) => {
+          proxy.on('proxyReq', (proxyReq, req, _res) => {
+            console.log(`[Proxy] 代理请求: ${req.url} -> ${backendUrl}${req.url}`);
+          });
           proxy.on('error', (err, req, res) => {
             console.error('上传文件代理错误:', err.message);
             console.error(`无法连接到后端服务器: ${backendUrl}`);

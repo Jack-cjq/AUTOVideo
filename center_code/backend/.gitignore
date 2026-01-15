@@ -13,3 +13,16 @@ venv/
 ENV/
 env/
 
+# 日志文件
+logs/
+*.log
+
+# 环境变量文件
+.env
+.env.local
+.env.*.local
+
+# 上传文件
+uploads/
+cookies/
+

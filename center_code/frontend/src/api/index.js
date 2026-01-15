@@ -142,7 +142,10 @@ const api = {
   },
   login: {
     start: (data) => apiClient.post('/login/start', data),
-    getQrcode: (accountId) => apiClient.get(`/login/qrcode?account_id=${accountId}`)
+    getQrcode: (accountId) => apiClient.get(`/login/qrcode?account_id=${accountId}`),
+    getStatus: (accountId) => apiClient.get(`/login/status?account_id=${accountId}`),
+    complete: (data) => apiClient.post('/login/complete', data),
+    cancel: (data) => apiClient.post('/login/cancel', data)
   },
   video: {
     upload: (data) => apiClient.post('/video/upload', data),

@@ -9,6 +9,15 @@ export const getVideo = (id) => {
 }
 
 export const uploadVideo = (data) => {
+  // 如果data是FormData，说明是文件上传
+  if (data instanceof FormData) {
+    return apiClient.post('/video-library', data, {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      }
+    })
+  }
+  // 否则是JSON数据
   return apiClient.post('/video-library', data)
 }
 

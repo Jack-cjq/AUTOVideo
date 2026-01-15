@@ -82,7 +82,7 @@
           @refresh-materials="bootstrapData"
           @refresh-outputs="loadOutputs"
           @open-outputs="() => { setView('cloud'); setCloudTab('outputs'); }"
-          @preview-audio="(url) => openModal('TTS 试听', 'audio', url)"
+          @preview-audio="handlePreviewAudio"
         />
       </section>
     </div>
@@ -107,13 +107,25 @@
             controls
             :src="modal.url"
           ></video>
-          <audio 
-            v-if="modal.kind === 'audio'"
-            ref="modalAudio"
-            class="audio" 
-            controls
-            preload="auto"
-          ></audio>
+          <div v-if="modal.kind === 'audio'" class="audio-wrapper">
+            <audio 
+              ref="modalAudio"
+              class="audio" 
+              controls
+              preload="auto"
+              :src="modal.url"
+              @loadedmetadata="handleAudioLoaded"
+              @error="handleAudioError"
+              @canplay="handleAudioLoaded"
+            ></audio>
+            <div class="audio-hint">
+              <svg class="hint-icon" viewBox="0 0 24 24" fill="none">
+                <path d="M12 16v-4M12 8h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/>
+              </svg>
+              <span>音频加载完成后将自动播放，您也可以使用下方控制条手动控制播放</span>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -121,11 +133,12 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, nextTick, watch, provide } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import VideoEditorView from './VideoEditorView.vue'
 import * as materialApi from '../api/material'
 import * as editorApi from '../api/editor'
+import * as aiApi from '../api/ai'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 const router = useRouter()
@@ -160,11 +173,34 @@ const pageTitle = computed(() => {
 
 // 工具函数
 function showToast(message, type = 'info', duration = 2500) {
-  toast.value = { show: true, message }
+  if (!toast.value) {
+    toast.value = { show: false, message: '' }
+  }
+  toast.value.show = true
+  toast.value.message = message
   setTimeout(() => {
-    toast.value.show = false
+    if (toast.value) {
+      toast.value.show = false
+    }
   }, duration)
 }
+
+function handlePreviewAudio(url) {
+  console.log('[VideoLibrary] ========== handlePreviewAudio 被调用 ==========')
+  console.log('[VideoLibrary] 参数 url:', url)
+  console.log('[VideoLibrary] url 类型:', typeof url)
+  console.log('[VideoLibrary] url 值:', JSON.stringify(url))
+  if (!url) {
+    console.error('[VideoLibrary] handlePreviewAudio: url 为空')
+    return
+  }
+  console.log('[VideoLibrary] 准备调用 openModal')
+  openModal('TTS 试听', 'audio', url)
+  console.log('[VideoLibrary] openModal 调用完成')
+}
+
+// 在 setup 顶层提供预览音频方法（必须在 setup 顶层，不能在 onMounted 中）
+provide('previewAudio', handlePreviewAudio)
 
 function openModal(title, kind, url) {
   if (!url) {
@@ -182,40 +218,38 @@ function openModal(title, kind, url) {
     fullUrl = '/' + url
   }
   
-  console.log('[VideoLibrary] 打开预览模态框:', { title, kind, url, fullUrl })
-  
+  console.log('[openModal] 打开模态框:', { title, kind, url: fullUrl })
   modal.value = { show: true, title, kind, url: fullUrl }
+  console.log('[openModal] modal.value 已更新:', modal.value)
+  console.log('[openModal] modal.show 值:', modal.value.show)
   
-  // 对于音频，立即尝试播放（因为用户已经点击了试听按钮，在用户交互上下文中）
+  // 对于音频，等待模态框渲染完成后尝试自动播放
   if (kind === 'audio') {
-    // 使用 requestAnimationFrame 确保在下一个渲染帧中执行，此时模态框已经显示
-    requestAnimationFrame(() => {
-      nextTick(() => {
+    console.log('[openModal] 开始处理音频模态框，等待渲染...')
+    // 使用 nextTick 确保模态框已经渲染，audio 元素已经存在
+    nextTick(() => {
+      console.log('[openModal] nextTick 回调执行，检查 audio 元素...')
+      // 再等待一下确保 audio 元素完全渲染
+      setTimeout(() => {
         if (modalAudio.value) {
           const audio = modalAudio.value
-          audio.src = fullUrl
+          console.log('[openModal] 音频元素已找到，设置源:', fullUrl)
           
           // 清除之前的事件监听器
           audio.onerror = null
           audio.onloadeddata = null
           audio.oncanplay = null
-          audio.oncanplaythrough = null
-          audio.onstalled = null
-          audio.onabort = null
-          audio.onplay = null
-          audio.onpause = null
-          audio.onvolumechange = null
+          audio.onloadedmetadata = null
           
+          // 明确设置音频源（即使模板中已经绑定了 :src，这里也设置一次确保生效）
+          audio.src = fullUrl
+          
+          // 设置音量（确保不是静音）
+          audio.volume = 1.0
+          audio.muted = false
+          
+          // 添加错误处理
           audio.onerror = (e) => {
-            console.error('[VideoLibrary] 音频加载失败:', {
-              error: audio.error,
-              errorCode: audio.error?.code,
-              errorMessage: audio.error?.message,
-              networkState: audio.networkState,
-              readyState: audio.readyState,
-              src: fullUrl,
-              event: e
-            })
             let errorMsg = '音频加载失败'
             if (audio.error) {
               switch (audio.error.code) {
@@ -235,78 +269,59 @@ function openModal(title, kind, url) {
             }
             showToast(errorMsg, 'error')
           }
-          audio.onloadeddata = () => {
-            console.log('[VideoLibrary] 音频元数据加载成功:', {
-              duration: audio.duration,
-              src: fullUrl,
-              volume: audio.volume,
-              muted: audio.muted,
-              paused: audio.paused
-            })
-            
-            // 确保音量设置正确
-            audio.volume = 1.0
-            audio.muted = false
-            
-            // 尝试自动播放（在元数据加载后，此时仍在用户交互上下文中）
-            audio.play().catch(err => {
-              console.log('[VideoLibrary] 自动播放需要用户交互，请手动点击播放按钮:', err.message)
-              // 不显示错误，因为这是正常的浏览器行为
-            })
-          }
+          
+          // 当音频可以播放时，尝试自动播放
           audio.oncanplay = () => {
-            console.log('[VideoLibrary] 音频可以播放:', {
-              src: fullUrl,
-              volume: audio.volume,
-              muted: audio.muted,
-              paused: audio.paused
-            })
-          }
-          audio.oncanplaythrough = () => {
-            console.log('[VideoLibrary] 音频可以完整播放:', fullUrl)
-            // 再次确保音量设置
+            console.log('[openModal] 音频可以播放')
             audio.volume = 1.0
             audio.muted = false
-          }
-          audio.onstalled = () => {
-            console.warn('[VideoLibrary] 音频加载停滞:', fullUrl)
-          }
-          audio.onabort = () => {
-            console.warn('[VideoLibrary] 音频加载被中止:', fullUrl)
-          }
-          audio.onplay = () => {
-            console.log('[VideoLibrary] 音频开始播放:', fullUrl)
-          }
-          audio.onpause = () => {
-            console.log('[VideoLibrary] 音频已暂停:', fullUrl)
-          }
-          audio.onvolumechange = () => {
-            console.log('[VideoLibrary] 音量变化:', {
-              volume: audio.volume,
-              muted: audio.muted
+            // 尝试自动播放（在用户交互上下文中）
+            audio.play().then(() => {
+              console.log('[openModal] 音频自动播放成功')
+            }).catch((err) => {
+              // 自动播放被阻止是正常的浏览器行为，不显示错误
+              console.log('[openModal] 自动播放被阻止，用户可以手动点击播放按钮:', err)
             })
           }
           
-          // 设置音量（确保不是静音）
-          audio.volume = 1.0
-          audio.muted = false
-          
-          console.log('[VideoLibrary] 开始加载音频:', fullUrl)
-          audio.load()
-          
-          // 延迟尝试自动播放（等待加载完成）
-          setTimeout(() => {
-            if (audio.readyState >= 2) { // HAVE_CURRENT_DATA
-              audio.play().catch(err => {
-                console.log('[VideoLibrary] 自动播放需要用户交互，请手动点击播放按钮')
-                // 不显示错误，因为这是正常的浏览器行为
+          // 当元数据加载完成时也尝试播放
+          audio.onloadedmetadata = () => {
+            console.log('[openModal] 音频元数据加载完成')
+            audio.volume = 1.0
+            audio.muted = false
+            if (audio.readyState >= 2) {
+              audio.play().then(() => {
+                console.log('[openModal] 音频元数据加载后播放成功')
+              }).catch(() => {
+                // 自动播放被阻止是正常的
+                console.log('[openModal] 音频元数据加载后播放被阻止')
               })
             }
-          }, 100)
+          }
+          
+          // 当数据加载完成时也尝试播放
+          audio.onloadeddata = () => {
+            console.log('[openModal] 音频数据加载完成')
+            audio.volume = 1.0
+            audio.muted = false
+            if (audio.readyState >= 2) {
+              audio.play().then(() => {
+                console.log('[openModal] 音频数据加载后播放成功')
+              }).catch(() => {
+                // 自动播放被阻止是正常的
+                console.log('[openModal] 音频数据加载后播放被阻止')
+              })
+            }
+          }
+          
+          // 强制加载音频
+          console.log('[openModal] 开始加载音频')
+          audio.load()
+        } else {
+          console.warn('[openModal] 音频元素未找到！modalAudio.value:', modalAudio.value)
         }
-      })
+      }, 150)
     })
-    return
   }
   
   nextTick(() => {
@@ -320,14 +335,13 @@ function openModal(title, kind, url) {
       video.oncanplay = null
       
       video.onerror = (e) => {
-        console.error('[VideoLibrary] 视频加载失败:', e, video.error, fullUrl)
         showToast('视频加载失败，请检查文件是否存在', 'error')
       }
       video.onloadeddata = () => {
-        console.log('[VideoLibrary] 视频加载成功:', fullUrl)
+        // 视频加载成功
       }
       video.oncanplay = () => {
-        console.log('[VideoLibrary] 视频可以播放:', fullUrl)
+        // 视频可以播放
       }
       
       video.load()
@@ -336,7 +350,19 @@ function openModal(title, kind, url) {
   })
 }
 
-function closeModal() {
+async function closeModal() {
+  // 如果是临时TTS文件（路径包含 /tts/），关闭时删除
+  const currentUrl = modal.value.url
+  if (modal.value.kind === 'audio' && currentUrl && currentUrl.includes('/tts/')) {
+    try {
+      await aiApi.deleteTempTts(currentUrl)
+      // 静默删除，不显示成功消息（避免干扰用户体验）
+    } catch (error) {
+      // 删除失败也不影响关闭模态框，只记录错误
+      console.warn('删除临时TTS文件失败:', error)
+    }
+  }
+  
   if (modalVideo.value) {
     modalVideo.value.pause()
     modalVideo.value.src = ''
@@ -347,8 +373,26 @@ function closeModal() {
     modalAudio.value.src = ''
     modalAudio.value.onerror = null
     modalAudio.value.onloadeddata = null
+    modalAudio.value.oncanplay = null
+    modalAudio.value.onloadedmetadata = null
   }
-  modal.value.show = false
+  modal.value = { show: false, title: '', kind: '', url: '' }
+}
+
+function handleAudioLoaded() {
+  // 音频元数据加载完成，尝试自动播放
+  if (modalAudio.value) {
+    modalAudio.value.volume = 1.0
+    modalAudio.value.muted = false
+    // 尝试自动播放（在用户交互上下文中）
+    modalAudio.value.play().catch(() => {
+      // 自动播放被阻止是正常的浏览器行为，用户可以手动点击播放
+    })
+  }
+}
+
+function handleAudioError(e) {
+  showToast('音频加载失败，请检查网络连接或音频文件', 'error')
 }
 
 function handleMaskClick(e) {
@@ -414,15 +458,8 @@ async function loadMaterials() {
     if (response.code === 200) {
       // 后端返回的 data 直接是数组，不是 { materials: [...] }
       materials.value = Array.isArray(response.data) ? response.data : (response.data?.materials || [])
-      console.log('[VideoLibrary] 加载素材成功:', {
-        total: materials.value.length,
-        videos: materials.value.filter(m => m.type === 'video').length,
-        audios: materials.value.filter(m => m.type === 'audio').length,
-        all: materials.value
-      })
     }
   } catch (error) {
-    console.error('[VideoLibrary] 加载素材失败:', error)
     showToast(`加载素材失败：${error.message || '未知错误'}`, 'error')
   }
 }
@@ -457,23 +494,9 @@ function renderCloud() {
   if (tab === 'videos') {
     items = materials.value.filter(m => m.type === 'video')
   } else if (tab === 'bgm') {
-    // 调试：打印所有素材的类型
-    console.log('[VideoLibrary] 所有素材详情:', materials.value.map(m => ({
-      id: m.id,
-      name: m.name,
-      type: m.type,
-      typeValue: typeof m.type,
-      path: m.path
-    })))
     items = materials.value.filter(m => {
       const type = (m.type || '').toLowerCase()
       return type === 'audio'
-    })
-    console.log('[VideoLibrary] BGM库筛选:', {
-      totalMaterials: materials.value.length,
-      audioMaterials: materials.value.filter(m => (m.type || '').toLowerCase() === 'audio'),
-      filteredItems: items,
-      allTypes: [...new Set(materials.value.map(m => (m.type || '').toLowerCase()))]
     })
   } else {
     items = outputs.value
@@ -520,13 +543,39 @@ function renderMaterialCard(m) {
   const isVideo = m.type === 'video'
   const badge = isVideo ? 'video' : 'audio'
   const badgeLabel = isVideo ? '视频' : '音频'
-  const coverText = isVideo ? '视频素材' : 'BGM素材'
   const filename = (m.path || '').split('/').pop() || '-'
+  const videoUrl = isVideo ? toUploadsUrl(m.path) : ''
+  
+  // 如果是视频，使用 video 元素显示缩略图；如果是音频，显示音频图标
+  let coverHtml = ''
+  if (isVideo && videoUrl) {
+    coverHtml = `
+      <video 
+        class="card-video-thumbnail" 
+        preload="metadata" 
+        muted
+        data-video-url="${escapeHtml(videoUrl)}"
+      >
+        <source src="${escapeHtml(videoUrl)}" type="video/mp4">
+      </video>
+      <div class="card-cover-overlay">
+        <span class="badge ${badge}">${badgeLabel}</span>
+      </div>
+    `
+  } else {
+    coverHtml = `
+      <div class="card-cover-placeholder">
+        <svg class="placeholder-icon" viewBox="0 0 24 24" fill="none">
+          <path d="M11 5L6 9H2v6h4l5 4V5zM19.07 4.93a10 10 0 010 14.14M15.54 8.46a5 5 0 010 7.07" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span class="badge ${badge}">${badgeLabel}</span>
+      </div>
+    `
+  }
   
   return `
     <div class="card-cover">
-      <span class="badge ${badge}">${badgeLabel}</span>
-      ${coverText}
+      ${coverHtml}
     </div>
     <div class="card-body">
       <div class="card-title">${escapeHtml(m.name || filename)}</div>
@@ -547,18 +596,48 @@ function renderMaterialCard(m) {
 }
 
 function renderOutputCard(o) {
+  const videoUrl = o.preview_url || o.video_url || ''
+  // 处理URL：如果是相对路径，转换为完整URL
+  const fullVideoUrl = videoUrl ? (videoUrl.startsWith('http') ? videoUrl : toUploadsUrl(videoUrl)) : ''
+  
+  // 使用 video 元素显示视频画面帧
+  let coverHtml = ''
+  if (fullVideoUrl) {
+    coverHtml = `
+      <video 
+        class="card-video-thumbnail" 
+        preload="metadata" 
+        muted
+        data-video-url="${escapeHtml(fullVideoUrl)}"
+      >
+        <source src="${escapeHtml(fullVideoUrl)}" type="video/mp4">
+      </video>
+      <div class="card-cover-overlay">
+        <span class="badge output">成品</span>
+      </div>
+    `
+  } else {
+    coverHtml = `
+      <div class="card-cover-placeholder">
+        <svg class="placeholder-icon" viewBox="0 0 24 24" fill="none">
+          <path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span class="badge output">成品</span>
+      </div>
+    `
+  }
+  
   return `
     <div class="card-cover">
-      <span class="badge output">成品</span>
-      成品视频
+      ${coverHtml}
     </div>
     <div class="card-body">
-      <div class="card-title">${escapeHtml(o.filename || '-')}</div>
+      <div class="card-title">${escapeHtml(o.video_name || o.filename || '-')}</div>
       <div class="card-meta">
-        <div>大小：${formatSize(o.size)}</div>
+        <div>大小：${formatSize(o.size || 0)}</div>
         <div>更新时间：${escapeHtml(o.update_time || '-')}</div>
-        <div>预览：在线播放</div>
-        <div></div>
+        <div>时长：<span data-meta="duration">-</span></div>
+        <div>分辨率：<span data-meta="resolution">-</span></div>
       </div>
       <div class="card-actions">
         <button class="btn btn-mini" data-action="preview">预览</button>
@@ -577,6 +656,7 @@ function bindMaterialCard(card, m) {
   const previewBtn = card.querySelector('[data-action="preview"]')
   const addBtn = card.querySelector('[data-action="add"]')
   const deleteBtn = card.querySelector('[data-action="delete"]')
+  const videoThumbnail = card.querySelector('.card-video-thumbnail')
 
   if (downloadBtn) downloadBtn.href = url
   
@@ -584,6 +664,49 @@ function bindMaterialCard(card, m) {
     previewBtn.onclick = () => {
       openModal(m.name || '预览', m.type === 'audio' ? 'audio' : 'video', url)
     }
+  }
+  
+  // 处理视频缩略图
+  if (videoThumbnail && m.type === 'video') {
+    // 设置视频当前时间为第一秒，以显示画面帧
+    videoThumbnail.currentTime = 0.1
+    // 加载视频元数据以获取时长和分辨率
+    videoThumbnail.addEventListener('loadedmetadata', () => {
+      const duration = videoThumbnail.duration
+      const videoWidth = videoThumbnail.videoWidth
+      const videoHeight = videoThumbnail.videoHeight
+      
+      // 更新时长显示
+      const durationSpan = card.querySelector('[data-meta="duration"]')
+      if (durationSpan && !isNaN(duration)) {
+        const minutes = Math.floor(duration / 60)
+        const seconds = Math.floor(duration % 60)
+        durationSpan.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`
+      }
+      
+      // 更新分辨率显示
+      const resolutionSpan = card.querySelector('[data-meta="resolution"]')
+      if (resolutionSpan && videoWidth && videoHeight) {
+        resolutionSpan.textContent = `${videoWidth}x${videoHeight}`
+      }
+    }, { once: true })
+    
+    // 处理视频加载错误
+    videoThumbnail.addEventListener('error', () => {
+      console.warn('视频缩略图加载失败:', url)
+      // 如果加载失败，可以显示占位符
+      const cover = card.querySelector('.card-cover')
+      if (cover) {
+        cover.innerHTML = `
+          <div class="card-cover-placeholder">
+            <svg class="placeholder-icon" viewBox="0 0 24 24" fill="none">
+              <path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span class="badge video">视频</span>
+          </div>
+        `
+      }
+    }, { once: true })
   }
 
   if (addBtn) {
@@ -648,15 +771,63 @@ function bindOutputCard(card, o) {
   const deleteBtn = card.querySelector('[data-action="delete"]')
   const editBtn = card.querySelector('[data-action="edit"]')
   const shareBtn = card.querySelector('[data-action="share"]')
+  const videoThumbnail = card.querySelector('.card-video-thumbnail')
+  
+  // 处理视频URL
+  const videoUrl = o.preview_url || o.video_url || ''
+  const fullVideoUrl = videoUrl ? (videoUrl.startsWith('http') ? videoUrl : toUploadsUrl(videoUrl)) : ''
 
   if (previewBtn) {
     previewBtn.onclick = () => {
-      openModal(o.filename || '预览', 'video', o.preview_url)
+      openModal(o.video_name || o.filename || '预览', 'video', fullVideoUrl || o.preview_url)
     }
   }
 
   if (downloadBtn) {
-    downloadBtn.href = o.download_url || '#'
+    downloadBtn.href = o.download_url || fullVideoUrl || '#'
+  }
+  
+  // 处理视频缩略图
+  if (videoThumbnail && fullVideoUrl) {
+    // 设置视频当前时间为第一秒，以显示画面帧
+    videoThumbnail.currentTime = 0.1
+    // 加载视频元数据以获取时长和分辨率
+    videoThumbnail.addEventListener('loadedmetadata', () => {
+      const duration = videoThumbnail.duration
+      const videoWidth = videoThumbnail.videoWidth
+      const videoHeight = videoThumbnail.videoHeight
+      
+      // 更新时长显示
+      const durationSpan = card.querySelector('[data-meta="duration"]')
+      if (durationSpan && !isNaN(duration)) {
+        const minutes = Math.floor(duration / 60)
+        const seconds = Math.floor(duration % 60)
+        durationSpan.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`
+      }
+      
+      // 更新分辨率显示
+      const resolutionSpan = card.querySelector('[data-meta="resolution"]')
+      if (resolutionSpan && videoWidth && videoHeight) {
+        resolutionSpan.textContent = `${videoWidth}x${videoHeight}`
+      }
+    }, { once: true })
+    
+    // 处理视频加载错误
+    videoThumbnail.addEventListener('error', () => {
+      console.warn('成品视频缩略图加载失败:', fullVideoUrl)
+      // 如果加载失败，显示占位符
+      const cover = card.querySelector('.card-cover')
+      if (cover) {
+        cover.innerHTML = `
+          <div class="card-cover-placeholder">
+            <svg class="placeholder-icon" viewBox="0 0 24 24" fill="none">
+              <path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span class="badge output">成品</span>
+          </div>
+        `
+      }
+    }, { once: true })
   }
 
   if (deleteBtn) {
@@ -666,7 +837,7 @@ function bindOutputCard(card, o) {
           type: 'warning'
         })
         
-        const response = await materialApi.deleteOutput(o.filename)
+        const response = await materialApi.deleteOutput(o.filename, o.cos_key)
         if (response.code === 200) {
           showToast('删除成功')
           await bootstrapData()
@@ -751,8 +922,12 @@ function saveTimeline() {
 }
 
 function updateTimeline(newTimeline) {
+  console.log('[VideoLibrary] updateTimeline 被调用，newTimeline:', newTimeline)
+  console.log('[VideoLibrary] newTimeline.voice:', newTimeline?.voice)
   timeline.value = newTimeline
   saveTimeline()
+  console.log('[VideoLibrary] timeline.value 已更新:', timeline.value)
+  console.log('[VideoLibrary] timeline.value.voice:', timeline.value?.voice)
 }
 
 // 上传和清空
@@ -766,21 +941,11 @@ async function handleUpload(e) {
     const isAudio = ['.mp3', '.wav', '.flac'].includes('.' + fileExt)
     const isVideo = ['.mp4', '.avi', '.mov'].includes('.' + fileExt)
     
-    console.log('[VideoLibrary] 上传文件:', {
-      fileName,
-      fileExt,
-      isAudio,
-      isVideo,
-      fileType: file.type
-    })
-    
     showToast('正在上传…')
     const response = await materialApi.uploadMaterial(file)
-    console.log('[VideoLibrary] 上传响应:', response)
     
     if (response.code === 200) {
       const uploadedType = response.data?.type
-      console.log('[VideoLibrary] 上传成功，素材类型:', uploadedType)
       showToast('上传成功，已刷新素材库')
       
       // 如果是音频文件，自动切换到 BGM 库
@@ -797,7 +962,6 @@ async function handleUpload(e) {
       showToast(`上传失败：${response.message || '未知错误'}`, 'error', 3500)
     }
   } catch (error) {
-    console.error('[VideoLibrary] 上传异常:', error)
     showToast(`上传失败：${error.message}`, 'error', 3500)
   } finally {
     e.target.value = ''
@@ -1095,9 +1259,49 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.card-video-thumbnail {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: #000;
+}
+
+.card-cover-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding: 8px;
+  background: linear-gradient(to bottom, rgba(0,0,0,0.3) 0%, transparent 30%);
+  pointer-events: none;
+}
+
+.card-cover-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #8a94a3;
   font-weight: 800;
   font-size: 13px;
   position: relative;
+}
+
+.placeholder-icon {
+  width: 48px;
+  height: 48px;
+  opacity: 0.5;
 }
 
 .badge {
@@ -1241,8 +1445,89 @@ onMounted(async () => {
   border-radius: 12px;
 }
 
+.audio-wrapper {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 .audio {
   width: 100%;
+  min-height: 80px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  padding: 16px;
+  box-sizing: border-box;
+  outline: none;
+}
+
+/* 确保音频控制条清晰可见 */
+.audio::-webkit-media-controls-panel {
+  background-color: #fff;
+  border-radius: 6px;
+  padding: 8px;
+}
+
+.audio::-webkit-media-controls-play-button {
+  background-color: #1677ff;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+}
+
+.audio::-webkit-media-controls-current-time-display,
+.audio::-webkit-media-controls-time-remaining-display {
+  color: #2c3e50;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.audio::-webkit-media-controls-timeline {
+  background-color: #e0e0e0;
+  border-radius: 2px;
+  height: 6px;
+  margin: 0 12px;
+}
+
+.audio::-webkit-media-controls-timeline::-webkit-slider-thumb {
+  background-color: #1677ff;
+  border-radius: 50%;
+  width: 16px;
+  height: 16px;
+  border: 2px solid #fff;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+.audio::-webkit-media-controls-volume-slider {
+  background-color: #e0e0e0;
+  border-radius: 2px;
+  height: 4px;
+}
+
+.audio::-webkit-media-controls-volume-slider::-webkit-slider-thumb {
+  background-color: #1677ff;
+  border-radius: 50%;
+  width: 12px;
+  height: 12px;
+}
+
+.audio-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  background: #f0f7ff;
+  border: 1px solid #b3d8ff;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #1677ff;
+}
+
+.hint-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
 }
 
 @media (max-width: 980px) {

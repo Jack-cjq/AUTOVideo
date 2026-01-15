@@ -504,20 +504,48 @@ class DouYinVideo(object):
             except Exception as e:
                 douyin_logger.warning(f'  [-]更新数据库 cookies 失败: {e}')
         
-        await asyncio.sleep(self.final_display_delay)  # 结束前额外等待，方便查看状态
-        # 关闭浏览器上下文和浏览器实例
-        await context.close()
-        await browser.close()
-        
-        # 返回更新后的cookies，这样调用方可以知道上传成功
-        # 如果 cookies 读取失败，返回成功标记，确保 task_executor 能正确更新任务状态
+        # 准备返回结果（在关闭浏览器之前返回，以便任务状态能及时更新）
+        result = None
         if updated_cookies:
             douyin_logger.info(f'  [-]返回更新后的cookies给 task_executor，任务状态将被更新为 completed')
-            return updated_cookies
+            result = updated_cookies
         else:
             # 即使 cookies 读取失败，也返回成功标记，确保任务状态能正确更新
             douyin_logger.info(f'  [-]cookies读取失败，返回成功标记给 task_executor，任务状态将被更新为 completed')
-            return {"upload_success": True}
+            result = {"upload_success": True}
+        
+        # 在后台异步关闭浏览器（不阻塞返回）
+        async def close_browser_async():
+            try:
+                # 等待一小段时间，确保cookies已保存和结果已返回
+                await asyncio.sleep(1)
+                await context.close()
+                await browser.close()
+                douyin_logger.info('  [-]浏览器已关闭')
+            except Exception as e:
+                douyin_logger.warning(f'  [-]关闭浏览器时出错: {e}')
+        
+        # 创建后台任务关闭浏览器，不等待完成
+        # 使用 get_event_loop() 确保在正确的循环中创建任务
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # 如果循环正在运行，创建后台任务
+                asyncio.create_task(close_browser_async())
+            else:
+                # 如果循环未运行，直接关闭（这种情况不应该发生）
+                await close_browser_async()
+        except Exception as e:
+            # 如果创建任务失败，尝试直接关闭（同步方式）
+            douyin_logger.warning(f'  [-]创建后台任务失败: {e}，将直接关闭浏览器')
+            try:
+                await context.close()
+                await browser.close()
+            except:
+                pass
+        
+        # 立即返回结果，不等待浏览器关闭
+        return result
     
     async def set_thumbnail(self, page: Page, thumbnail_path: str):
         if thumbnail_path:

@@ -154,25 +154,37 @@ class VideoEditor:
 
             # 音频：默认去掉原视频音轨，用配音 + BGM 双轨混音（可选）
             audio_stream = None
-            if voice_path and os.path.exists(voice_path):
-                a_voice = ffmpeg.input(voice_path).audio
-                a_voice = a_voice.filter("volume", voice_volume)
-                audio_stream = a_voice
-
-            if bgm_path and os.path.exists(bgm_path):
-                # 循环 BGM，避免短音乐提前结束
-                a_bgm = ffmpeg.input(bgm_path, stream_loop=-1).audio
-                a_bgm = a_bgm.filter("volume", bgm_volume)
-                if audio_stream is None:
-                    audio_stream = a_bgm
+            if voice_path:
+                # 标准化路径（统一使用正斜杠或反斜杠）
+                voice_path = os.path.normpath(voice_path)
+                if os.path.exists(voice_path):
+                    print(f"[VideoEditor] 使用配音文件：{voice_path}")
+                    a_voice = ffmpeg.input(voice_path).audio
+                    a_voice = a_voice.filter("volume", voice_volume)
+                    audio_stream = a_voice
                 else:
-                    audio_stream = ffmpeg.filter(
-                        [audio_stream, a_bgm],
-                        "amix",
-                        inputs=2,
-                        duration="shortest",
-                        dropout_transition=0,
-                    )
+                    print(f"[VideoEditor] 警告：配音文件不存在：{voice_path}")
+
+            if bgm_path:
+                # 标准化路径
+                bgm_path = os.path.normpath(bgm_path)
+                if os.path.exists(bgm_path):
+                    print(f"[VideoEditor] 使用BGM文件：{bgm_path}")
+                    # 循环 BGM，避免短音乐提前结束
+                    a_bgm = ffmpeg.input(bgm_path, stream_loop=-1).audio
+                    a_bgm = a_bgm.filter("volume", bgm_volume)
+                    if audio_stream is None:
+                        audio_stream = a_bgm
+                    else:
+                        audio_stream = ffmpeg.filter(
+                            [audio_stream, a_bgm],
+                            "amix",
+                            inputs=2,
+                            duration="shortest",
+                            dropout_transition=0,
+                        )
+                else:
+                    print(f"[VideoEditor] 警告：BGM文件不存在：{bgm_path}")
 
             # 输出：显式只取视频流（去掉原音轨）
             v_stream = v_in.video
