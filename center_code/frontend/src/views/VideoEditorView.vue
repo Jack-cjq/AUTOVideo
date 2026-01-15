@@ -1146,7 +1146,9 @@ async function handleVoiceSave() {
       speed: 5,
       pitch: 5,
       volume: 6,
-      persist: true
+      persist: true,
+      theme: copyForm.value.theme || '',  // 传递主题
+      keywords: copyForm.value.keywords || ''  // 传递关键字
     })
 
     if (response.code === 200) {
@@ -1709,12 +1711,14 @@ function handleFullscreen() {
 }
 
 // 渲染选中的视频/BGM/配音
-function renderSelectedVideos() {
+function renderSelectedVideos(timelineToUse = null) {
   if (!selectedVideos.value) return
   const box = selectedVideos.value
   box.innerHTML = ''
 
-  const clips = props.timeline?.clips || []
+  // 使用传入的 timeline 或 props.timeline
+  const timeline = timelineToUse || props.timeline
+  const clips = timeline?.clips || []
   if (!clips.length) {
     box.innerHTML = '<div class="empty-state"><svg class="empty-icon" viewBox="0 0 24 24" fill="none"><path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><div class="empty-text">尚未选择视频素材</div><div class="empty-hint">去"云素材库 → 视频素材库"点击"添加到剪辑轨道"来选择素材</div></div>'
     return
@@ -1734,24 +1738,36 @@ function renderSelectedVideos() {
     
     chip.querySelector('[data-action="up"]').onclick = () => {
       if (idx <= 0) return
-      const newTimeline = { ...props.timeline }
+      const newTimeline = { ...(timelineToUse || props.timeline) }
       const arr = newTimeline.clips
       ;[arr[idx - 1], arr[idx]] = [arr[idx], arr[idx - 1]]
       emit('update-timeline', newTimeline)
+      // 立即使用新的 timeline 更新 UI
+      nextTick(() => {
+        renderSelectedVideos(newTimeline)
+      })
     }
     
     chip.querySelector('[data-action="down"]').onclick = () => {
-      const newTimeline = { ...props.timeline }
+      const newTimeline = { ...(timelineToUse || props.timeline) }
       const arr = newTimeline.clips
       if (idx >= arr.length - 1) return
       ;[arr[idx], arr[idx + 1]] = [arr[idx + 1], arr[idx]]
       emit('update-timeline', newTimeline)
+      // 立即使用新的 timeline 更新 UI
+      nextTick(() => {
+        renderSelectedVideos(newTimeline)
+      })
     }
     
     chip.querySelector('[data-action="remove"]').onclick = () => {
-      const newTimeline = { ...props.timeline }
+      const newTimeline = { ...(timelineToUse || props.timeline) }
       newTimeline.clips = newTimeline.clips.filter(c => c.id !== clip.id)
       emit('update-timeline', newTimeline)
+      // 立即使用新的 timeline 更新 UI
+      nextTick(() => {
+        renderSelectedVideos(newTimeline)
+      })
     }
     
     box.appendChild(chip)

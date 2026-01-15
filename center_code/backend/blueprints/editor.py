@@ -52,6 +52,7 @@ def _run_edit_task(
     subtitle_path: Optional[str] = None,
     bgm_volume: float = 0.25,
     voice_volume: float = 1.0,
+    output_name: Optional[str] = None,
 ):
     """在后台线程中执行剪辑任务"""
     try:
@@ -83,7 +84,7 @@ def _run_edit_task(
         output_path = None
         edit_error = None
         try:
-            output_path = video_editor.edit(video_paths, voice_path, bgm_path, speed, subtitle_path, bgm_volume, voice_volume)
+            output_path = video_editor.edit(video_paths, voice_path, bgm_path, speed, subtitle_path, bgm_volume, voice_volume, output_name)
         except Exception as edit_ex:
             edit_error = str(edit_ex)
             logger.exception(f"Task {task_id}: Video edit failed with exception")
@@ -243,8 +244,12 @@ def edit_video():
         if speed < 0.5 or speed > 2.0:
             return response_error("播放速度超出范围（0.5~2.0）", 400)
 
-        # 查询视频素材的绝对路径
+        # 查询视频素材的绝对路径，并收集素材名称用于生成文件名
         video_paths = []
+        video_names = []
+        voice_name = None
+        bgm_name = None
+        
         with get_db() as db:
             for vid in video_ids:
                 mat = db.query(Material).filter(Material.id == vid).first()
@@ -254,6 +259,8 @@ def edit_video():
                 if not os.path.exists(abs_path):
                     return response_error(f"视频文件不存在：{mat.path}", 400)
                 video_paths.append(abs_path)
+                video_name = os.path.splitext(mat.name or os.path.basename(mat.path))[0]
+                video_names.append(video_name)
 
             # 查询配音素材的绝对路径（可选）
             voice_path = None
@@ -264,6 +271,11 @@ def edit_video():
                 voice_path = get_abs_path(voice_mat.path)
                 if not os.path.exists(voice_path):
                     return response_error(f"配音文件不存在：{voice_mat.path}", 400)
+                voice_name = os.path.splitext(voice_mat.name or os.path.basename(voice_mat.path))[0]
+                if voice_name.startswith("配音_"):
+                    voice_name = voice_name[2:]
+                elif voice_name.startswith("TTS_"):
+                    voice_name = voice_name[4:]
 
             bgm_path = None
             if bgm_id is not None:
@@ -273,6 +285,7 @@ def edit_video():
                 bgm_path = get_abs_path(bgm_mat.path)
                 if not os.path.exists(bgm_path):
                     return response_error(f"BGM文件不存在：{bgm_mat.path}", 400)
+                bgm_name = os.path.splitext(bgm_mat.name or os.path.basename(bgm_mat.path))[0]
 
             abs_sub_path = None
             if subtitle_path:
@@ -283,6 +296,44 @@ def edit_video():
                 abs_sub_path = get_abs_path(subtitle_path)
                 if not os.path.isfile(abs_sub_path):
                     return response_error(f"字幕文件不存在：{subtitle_path}（绝对路径：{abs_sub_path}）", 400)
+
+            # 生成输出文件名：切片名称+配音名称+bgm名称+时间
+            import re
+            import datetime
+            
+            def sanitize_filename(s):
+                """清理文件名，移除非法字符"""
+                if not s:
+                    return ""
+                s = re.sub(r'[<>:"/\\|?*]', '', s)
+                s = re.sub(r'\s+', '_', s)
+                s = s.strip('._')
+                return s[:30]
+            
+            name_parts = []
+            if video_names:
+                clips_name = "_".join([sanitize_filename(name) for name in video_names[:3]])
+                if len(video_names) > 3:
+                    clips_name += f"_等{len(video_names)}个"
+                if clips_name:
+                    name_parts.append(clips_name)
+            
+            if voice_name:
+                voice_clean = sanitize_filename(voice_name)
+                if voice_clean:
+                    name_parts.append(voice_clean)
+            
+            if bgm_name:
+                bgm_clean = sanitize_filename(bgm_name)
+                if bgm_clean:
+                    name_parts.append(bgm_clean)
+            
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            
+            if name_parts:
+                output_name = "_".join(name_parts) + "_" + timestamp + ".mp4"
+            else:
+                output_name = None
 
             # 创建任务记录
             video_ids_str = ",".join(map(str, video_ids))
@@ -303,7 +354,7 @@ def edit_video():
         try:
             # 调用剪辑逻辑（使用默认音量：bgm_volume=0.25, voice_volume=1.0）
             # 注意：同步接口暂不支持自定义音量，使用默认值
-            output_path = video_editor.edit(video_paths, voice_path, bgm_path, speed, abs_sub_path, 0.25, 1.0)
+            output_path = video_editor.edit(video_paths, voice_path, bgm_path, speed, abs_sub_path, 0.25, 1.0, output_name)
 
             with get_db() as db:
                 task = db.query(VideoEditTask).filter(VideoEditTask.id == task_id).first()
@@ -447,8 +498,12 @@ def edit_video_async():
         if speed < 0.5 or speed > 2.0:
             return response_error("播放速度超出范围（0.5~2.0）", 400)
 
-        # 查询视频素材的绝对路径
+        # 查询视频素材的绝对路径，并收集素材名称用于生成文件名
         video_paths = []
+        video_names = []  # 用于生成文件名
+        voice_name = None
+        bgm_name = None
+        
         with get_db() as db:
             for vid in video_ids:
                 mat = db.query(Material).filter(Material.id == vid).first()
@@ -458,6 +513,9 @@ def edit_video_async():
                 if not os.path.exists(abs_path):
                     return response_error(f"视频文件不存在：{mat.path}", 400)
                 video_paths.append(abs_path)
+                # 收集视频名称（去掉扩展名）
+                video_name = os.path.splitext(mat.name or os.path.basename(mat.path))[0]
+                video_names.append(video_name)
 
             bgm_path = None
             voice_path = None
@@ -477,6 +535,14 @@ def edit_video_async():
                     logger.error(f"配音文件不存在：{voice_path}")
                     return response_error(f"配音文件不存在：{voice_mat.path}", 400)
                 logger.info(f"配音文件验证成功：{voice_path}")
+                # 获取配音名称（去掉扩展名和前缀）
+                voice_name = voice_mat.name or os.path.basename(voice_mat.path)
+                voice_name = os.path.splitext(voice_name)[0]
+                # 去掉可能的"配音_"或"TTS_"前缀
+                if voice_name.startswith("配音_"):
+                    voice_name = voice_name[2:]
+                elif voice_name.startswith("TTS_"):
+                    voice_name = voice_name[4:]
 
             if bgm_id is not None:
                 bgm_mat = db.query(Material).filter(Material.id == bgm_id).first()
@@ -485,6 +551,8 @@ def edit_video_async():
                 bgm_path = get_abs_path(bgm_mat.path)
                 if not os.path.exists(bgm_path):
                     return response_error(f"BGM文件不存在：{bgm_mat.path}", 400)
+                # 获取BGM名称（去掉扩展名）
+                bgm_name = os.path.splitext(bgm_mat.name or os.path.basename(bgm_mat.path))[0]
 
             abs_sub_path = None
             if subtitle_path:
@@ -502,6 +570,52 @@ def edit_video_async():
                 logger.info(f"字幕文件验证成功：{abs_sub_path}")
             else:
                 logger.info("未提供字幕路径")
+
+            # 生成输出文件名：切片名称+配音名称+bgm名称+时间
+            import re
+            import datetime
+            
+            def sanitize_filename(s):
+                """清理文件名，移除非法字符"""
+                if not s:
+                    return ""
+                # 移除或替换非法字符
+                s = re.sub(r'[<>:"/\\|?*]', '', s)  # 移除Windows非法字符
+                s = re.sub(r'\s+', '_', s)  # 空格替换为下划线
+                s = s.strip('._')  # 移除首尾的点和下划线
+                return s[:30]  # 限制每个部分的长度
+            
+            name_parts = []
+            # 添加切片名称（如果有多个，用短横线连接）
+            if video_names:
+                clips_name = "_".join([sanitize_filename(name) for name in video_names[:3]])  # 最多取前3个
+                if len(video_names) > 3:
+                    clips_name += f"_等{len(video_names)}个"
+                if clips_name:
+                    name_parts.append(clips_name)
+            
+            # 添加配音名称
+            if voice_name:
+                voice_clean = sanitize_filename(voice_name)
+                if voice_clean:
+                    name_parts.append(voice_clean)
+            
+            # 添加BGM名称
+            if bgm_name:
+                bgm_clean = sanitize_filename(bgm_name)
+                if bgm_clean:
+                    name_parts.append(bgm_clean)
+            
+            # 添加时间戳
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            
+            if name_parts:
+                output_name = "_".join(name_parts) + "_" + timestamp + ".mp4"
+            else:
+                # 如果没有素材名称，使用默认命名
+                output_name = None
+            
+            logger.info(f"生成的输出文件名: {output_name}")
 
             # 创建任务记录
             video_ids_str = ",".join(map(str, video_ids))
@@ -523,7 +637,7 @@ def edit_video_async():
         # 启动后台任务
         t = threading.Thread(
             target=_run_edit_task,
-            args=(task_id, video_paths, voice_path, bgm_path, speed, abs_sub_path, bgm_volume, voice_volume),
+            args=(task_id, video_paths, voice_path, bgm_path, speed, abs_sub_path, bgm_volume, voice_volume, output_name),
             daemon=True
         )
         with _TASK_LOCK:

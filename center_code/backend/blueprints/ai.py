@@ -15,9 +15,9 @@ from db import get_db
 
 # 导入工具函数
 from utils.ai import deepseek_generate_copies
-from utils.baidu_tts import synthesize_speech
+from utils.baidu_tts import synthesize_speech, synthesize_speech_with_timestamps
 from utils.baidu_asr import recognize_speech
-from utils.subtitles import generate_srt_items, new_srt_filename, render_srt
+from utils.subtitles import generate_srt_items, new_srt_filename, render_srt, generate_srt_from_timestamps
 
 logger = logging.getLogger(__name__)
 
@@ -174,6 +174,9 @@ def ai_tts_synthesize():
         pitch = data.get("pitch", 5)
         volume = data.get("volume", 5)
         persist = data.get("persist") is True
+        use_timestamps = data.get("use_timestamps", False)  # 是否使用时间戳模式（按句切割）
+        theme = (data.get("theme") or "").strip()  # 主题，用于命名
+        keywords = (data.get("keywords") or "").strip()  # 关键字，用于命名
 
         if not text:
             return response_error("text 不能为空", 400)
@@ -183,14 +186,40 @@ def ai_tts_synthesize():
         if isinstance(voice, str):
             voice = voice_map.get(voice.strip(), voice)
 
-        audio_bytes = synthesize_speech(
-            text=text,
-            voice=voice,
-            speed=speed,
-            pitch=pitch,
-            volume=volume,
-            audio_format="mp3",
-        )
+        timestamps = None
+        if use_timestamps:
+            # 使用按句切割模式，生成带时间戳的配音
+            try:
+                audio_bytes, timestamps = synthesize_speech_with_timestamps(
+                    text=text,
+                    voice=voice,
+                    speed=speed,
+                    pitch=pitch,
+                    volume=volume,
+                    audio_format="mp3",
+                )
+                logger.info(f"使用时间戳模式生成TTS，共 {len(timestamps)} 句")
+            except Exception as e:
+                logger.warning(f"时间戳模式失败，回退到普通模式：{e}")
+                # 回退到普通模式
+                audio_bytes = synthesize_speech(
+                    text=text,
+                    voice=voice,
+                    speed=speed,
+                    pitch=pitch,
+                    volume=volume,
+                    audio_format="mp3",
+                )
+        else:
+            # 普通模式
+            audio_bytes = synthesize_speech(
+                text=text,
+                voice=voice,
+                speed=speed,
+                pitch=pitch,
+                volume=volume,
+                audio_format="mp3",
+            )
 
         # 写入 uploads/tts，前端可直接预览
         tmp_name = f"tts_{uuid.uuid4().hex}.mp3"
@@ -205,8 +234,36 @@ def ai_tts_synthesize():
 
         material_id = None
         if persist:
-            # 迁移到 materials/audios 并入库
-            final_name = f"{uuid.uuid4().hex}.mp3"
+            # 生成文件名：使用主题和关键字
+            import re
+            def sanitize_filename(s):
+                """清理文件名，移除非法字符"""
+                if not s:
+                    return ""
+                # 移除或替换非法字符
+                s = re.sub(r'[<>:"/\\|?*]', '', s)  # 移除Windows非法字符
+                s = re.sub(r'\s+', '_', s)  # 空格替换为下划线
+                s = s.strip('._')  # 移除首尾的点和下划线
+                return s[:50]  # 限制长度
+            
+            # 构建文件名：主题_关键字_时间戳
+            name_parts = []
+            if theme:
+                name_parts.append(sanitize_filename(theme))
+            if keywords:
+                name_parts.append(sanitize_filename(keywords))
+            
+            if name_parts:
+                # 使用主题和关键字
+                base_name = "_".join(name_parts)
+                # 添加时间戳避免重名
+                import datetime
+                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                final_name = f"{base_name}_{timestamp}.mp3"
+            else:
+                # 如果没有主题和关键字，使用默认命名
+                final_name = f"TTS_{uuid.uuid4().hex}.mp3"
+            
             final_path = os.path.join(MATERIAL_AUDIO_DIR, final_name)
             
             try:
@@ -221,9 +278,14 @@ def ai_tts_synthesize():
                 except Exception:
                     pass
                 
+                # 生成显示名称（用于数据库）
+                display_name = final_name.replace('.mp3', '')
+                if not display_name.startswith('TTS_'):
+                    display_name = f"配音_{display_name}"
+                
                 with get_db() as db:
                     material = Material(
-                        name=f"TTS_{final_name}",
+                        name=display_name,
                         path=rel_path,
                         type="audio",
                         duration=None,
@@ -245,11 +307,18 @@ def ai_tts_synthesize():
                     pass
                 return response_error(f"TTS 入库失败：{e}", 500)
 
-        return response_success({
+        result = {
             "preview_url": preview_url,
             "path": rel_path,
             "material_id": material_id,
-        }, "ok")
+        }
+        
+        # 如果使用了时间戳模式，返回时间戳信息
+        if timestamps:
+            result["timestamps"] = timestamps
+            result["total_duration"] = timestamps[-1]["end"] if timestamps else 0.0
+        
+        return response_success(result, "ok")
     
     except Exception as e:
         logger.exception("TTS synthesize failed")
@@ -411,6 +480,55 @@ def ai_subtitle_srt():
         # 获取音频时长（需要 ffmpeg-python）
         try:
             import ffmpeg
+            import shutil
+            
+            # 检查并配置 FFmpeg 路径
+            try:
+                from config import FFMPEG_PATH as config_ffmpeg_path
+                ffmpeg_path = os.environ.get('FFMPEG_PATH') or config_ffmpeg_path
+            except ImportError:
+                ffmpeg_path = os.environ.get('FFMPEG_PATH')
+            
+            if ffmpeg_path and os.path.exists(ffmpeg_path):
+                # 设置 ffmpeg-python 使用指定的路径
+                ffmpeg_path = os.path.abspath(ffmpeg_path)
+                ffmpeg_dir = os.path.dirname(ffmpeg_path)
+                if ffmpeg_dir not in os.environ.get('PATH', ''):
+                    os.environ['PATH'] = ffmpeg_dir + os.pathsep + os.environ.get('PATH', '')
+                logger.info(f"使用配置的 FFmpeg 路径：{ffmpeg_path}")
+            else:
+                # 尝试从系统 PATH 中查找
+                ffmpeg_path = shutil.which('ffmpeg')
+                if not ffmpeg_path:
+                    # 尝试常见路径
+                    common_paths = [
+                        r'D:\ffmpeg\bin\ffmpeg.exe',
+                        r'C:\ffmpeg\bin\ffmpeg.exe',
+                        r'C:\Program Files\ffmpeg\bin\ffmpeg.exe',
+                        r'C:\Program Files (x86)\ffmpeg\bin\ffmpeg.exe',
+                    ]
+                    for path in common_paths:
+                        if os.path.exists(path):
+                            ffmpeg_path = path
+                            ffmpeg_dir = os.path.dirname(ffmpeg_path)
+                            if ffmpeg_dir not in os.environ.get('PATH', ''):
+                                os.environ['PATH'] = ffmpeg_dir + os.pathsep + os.environ.get('PATH', '')
+                            logger.info(f"找到 FFmpeg：{ffmpeg_path}")
+                            break
+                
+                if not ffmpeg_path or not os.path.exists(ffmpeg_path):
+                    error_msg = (
+                        "未找到 FFmpeg 可执行文件，无法获取音频时长。\n"
+                        "解决方案：\n"
+                        "1. 将 FFmpeg 的 bin 目录添加到系统 PATH 环境变量\n"
+                        "2. 或设置环境变量 FFMPEG_PATH 指向 ffmpeg.exe 的完整路径\n"
+                        "   例如：set FFMPEG_PATH=D:\\软件\\ffmpeg\\bin\\ffmpeg.exe\n"
+                        "3. 或在 config.py 中设置 FFMPEG_PATH\n"
+                        "4. 重启后端服务后重试"
+                    )
+                    logger.error(error_msg)
+                    return response_error(error_msg, 500)
+            
             logger.info(f"开始获取音频时长: {abs_audio}")
             probe = ffmpeg.probe(abs_audio)
             fmt = probe.get("format") or {}
@@ -421,7 +539,11 @@ def ai_subtitle_srt():
             return response_error("缺少 ffmpeg-python，无法获取音频时长", 500)
         except Exception as e:
             logger.exception(f"获取音频时长失败: {e}")
-            return response_error(f"获取音频时长失败：{str(e)}", 500)
+            error_msg = f"获取音频时长失败：{str(e)}"
+            # 如果是 FileNotFoundError，提供更详细的错误信息
+            if isinstance(e, FileNotFoundError) or "找不到指定的文件" in str(e):
+                error_msg += "\n\n请确保 FFmpeg 已正确安装并配置。"
+            return response_error(error_msg, 500)
 
         if duration <= 0:
             logger.error(f"音频时长无效: {duration}")
@@ -429,10 +551,21 @@ def ai_subtitle_srt():
 
         # 生成字幕
         try:
-            logger.info(f"开始生成字幕: 文案长度={len(text)}, 时长={duration}秒")
-            items = generate_srt_items(text=text, total_duration_sec=duration)
-            srt_text = render_srt(items)
-            logger.info(f"字幕生成成功: {len(items)} 条字幕项")
+            # 检查是否提供了时间戳（从请求中获取，或从音频素材的metadata中获取）
+            timestamps = data.get("timestamps")  # 前端可以传递时间戳
+            
+            if timestamps and isinstance(timestamps, list) and len(timestamps) > 0:
+                # 使用时间戳生成字幕（更准确）
+                logger.info(f"使用时间戳生成字幕: {len(timestamps)} 条时间戳")
+                items = generate_srt_from_timestamps(timestamps)
+                srt_text = render_srt(items)
+                logger.info(f"字幕生成成功（时间戳模式）: {len(items)} 条字幕项")
+            else:
+                # 使用传统方式：按字符数分配时间
+                logger.info(f"开始生成字幕: 文案长度={len(text)}, 时长={duration}秒")
+                items = generate_srt_items(text=text, total_duration_sec=duration)
+                srt_text = render_srt(items)
+                logger.info(f"字幕生成成功: {len(items)} 条字幕项")
         except Exception as e:
             logger.exception(f"生成字幕失败: {e}")
             return response_error(f"生成字幕失败：{str(e)}", 500)

@@ -107,3 +107,18 @@ def render_srt(items: List[SrtItem]) -> str:
 def new_srt_filename(prefix: str = "sub") -> str:
     return f"{prefix}_{uuid.uuid4().hex}.srt"
 
+
+def generate_srt_from_timestamps(timestamps: List[dict]) -> List[SrtItem]:
+    """
+    根据时间戳列表生成字幕项
+    :param timestamps: 时间戳列表，格式: [{"text": "句子", "start": 0.0, "end": 2.5, "duration": 2.5}, ...]
+    :return: SrtItem 列表
+    """
+    items: List[SrtItem] = []
+    for i, ts in enumerate(timestamps, start=1):
+        text = _clean_text(ts.get("text", ""))
+        start = float(ts.get("start", 0.0))
+        end = float(ts.get("end", start + 1.0))
+        if text:  # 只添加非空文本
+            items.append(SrtItem(index=i, start=start, end=end, text=text))
+    return items

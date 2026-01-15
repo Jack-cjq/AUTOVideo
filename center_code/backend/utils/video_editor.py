@@ -35,6 +35,7 @@ class VideoEditor:
         subtitle_path: Optional[str] = None,
         bgm_volume: float = 0.25,
         voice_volume: float = 1.0,
+        output_name: Optional[str] = None,
     ):
         """
         最简剪辑逻辑：拼接视频+添加BGM+调速
@@ -46,6 +47,7 @@ class VideoEditor:
         :param subtitle_path: 字幕文件绝对路径（.srt），可选
         :param bgm_volume: BGM 音量（0~1）
         :param voice_volume: 配音音量（0~1）
+        :param output_name: 自定义输出文件名（不含扩展名），如果为None则自动生成
         :return: 成品视频绝对路径（失败返回None）
         """
         try:
@@ -109,9 +111,37 @@ class VideoEditor:
         if not os.path.exists(OUTPUT_VIDEO_DIR):
             os.makedirs(OUTPUT_VIDEO_DIR)
         
-        # 1. 生成唯一输出文件名
+        # 1. 生成输出文件名
         import secrets
-        output_name = f"output_{secrets.token_hex(4)}.mp4"
+        import re
+        import datetime
+        
+        def sanitize_filename(s):
+            """清理文件名，移除非法字符"""
+            if not s:
+                return ""
+            # 移除或替换非法字符
+            s = re.sub(r'[<>:"/\\|?*]', '', s)  # 移除Windows非法字符
+            s = re.sub(r'\s+', '_', s)  # 空格替换为下划线
+            s = s.strip('._')  # 移除首尾的点和下划线
+            return s[:100]  # 限制长度
+        
+        if output_name:
+            # 使用自定义文件名
+            safe_name = sanitize_filename(output_name)
+            if not safe_name:
+                # 如果清理后为空，使用默认命名
+                output_name = f"output_{secrets.token_hex(4)}.mp4"
+            else:
+                # 确保有.mp4扩展名
+                if not safe_name.endswith('.mp4'):
+                    output_name = f"{safe_name}.mp4"
+                else:
+                    output_name = safe_name
+        else:
+            # 自动生成文件名
+            output_name = f"output_{secrets.token_hex(4)}.mp4"
+        
         output_path = os.path.join(OUTPUT_VIDEO_DIR, output_name)
 
         try:
@@ -127,6 +157,27 @@ class VideoEditor:
             # 基础输入：拼接视频
             v_in = ffmpeg.input(concat_file, format="concat", safe=0)
 
+            # 获取配音时长（如果有配音）
+            voice_duration = None
+            if voice_path and os.path.exists(voice_path):
+                try:
+                    voice_probe = ffmpeg.probe(voice_path)
+                    voice_duration = float(voice_probe.get("format", {}).get("duration", 0.0))
+                    print(f"[VideoEditor] 配音时长: {voice_duration:.2f}秒")
+                except Exception as dur_error:
+                    print(f"[VideoEditor] 警告：获取配音时长失败：{dur_error}")
+
+            # 获取视频总时长（拼接后的原始时长）
+            video_duration = 0.0
+            try:
+                for vp in video_paths:
+                    vp_probe = ffmpeg.probe(vp)
+                    vp_duration = float(vp_probe.get("format", {}).get("duration", 0.0))
+                    video_duration += vp_duration
+                print(f"[VideoEditor] 视频原始总时长: {video_duration:.2f}秒")
+            except Exception as dur_error:
+                print(f"[VideoEditor] 警告：获取视频时长失败：{dur_error}")
+
             # 视频滤镜链（用 -vf，避免 filter_complex 下 Windows 字幕路径转义坑）
             vf_parts: List[str] = []
 
@@ -137,6 +188,32 @@ class VideoEditor:
                 speed_f = 1.0
             if speed_f and abs(speed_f - 1.0) > 1e-6:
                 vf_parts.append(f"setpts={1/speed_f}*PTS")
+                # 调整后的视频时长
+                video_duration = video_duration / speed_f
+                print(f"[VideoEditor] 调速后视频时长: {video_duration:.2f}秒")
+
+            # 如果有配音且视频较短，需要循环视频
+            loop_concat_file = None
+            if voice_duration and voice_duration > 0 and video_duration > 0:
+                duration_diff = abs(video_duration - voice_duration)
+                if duration_diff > 0.5:  # 差异超过0.5秒才调整
+                    if video_duration < voice_duration:
+                        # 视频较短，需要循环
+                        print(f"[VideoEditor] 视频较短（{video_duration:.2f}秒 < {voice_duration:.2f}秒），将循环视频")
+                        loop_times = int(voice_duration / video_duration) + 1
+                        # 创建循环视频的concat文件
+                        import secrets
+                        loop_concat_file = os.path.join(OUTPUT_VIDEO_DIR, f"loop_concat_{secrets.token_hex(4)}.txt")
+                        with open(loop_concat_file, "w", encoding="utf-8") as f:
+                            for _ in range(loop_times):
+                                for vp in video_paths:
+                                    vp_escaped = vp.replace("'", "'\\''")
+                                    f.write(f"file '{vp_escaped}'\n")
+                        # 使用循环后的视频
+                        v_in = ffmpeg.input(loop_concat_file, format="concat", safe=0)
+                        # 更新视频总时长为循环后的时长
+                        video_duration = video_duration * loop_times
+                        print(f"[VideoEditor] 已创建循环视频，循环 {loop_times} 次，循环后总时长：{video_duration:.2f}秒")
 
             # 烧录字幕（可选）
             if subtitle_path and os.path.exists(subtitle_path):
@@ -188,18 +265,60 @@ class VideoEditor:
 
             # 输出：显式只取视频流（去掉原音轨）
             v_stream = v_in.video
+            use_complex_filter = False  # 标记是否使用了复杂滤镜图
+            
+            # 如果视频较长需要裁剪到配音时长（包括循环后的情况）
+            if voice_duration and video_duration > voice_duration:
+                print(f"[VideoEditor] 视频较长（{video_duration:.2f}秒 > {voice_duration:.2f}秒），将裁剪到配音时长，确保视频在配音结束时停止")
+                v_stream = v_stream.trim(end=voice_duration).setpts("PTS-STARTPTS")
+                use_complex_filter = True  # trim 创建了复杂滤镜图
+                print(f"[VideoEditor] 视频已裁剪到 {voice_duration:.2f}秒，与配音时长匹配")
+            
+            # 如果使用了复杂滤镜图，需要将调速和字幕都通过 filter 方法添加
+            if use_complex_filter:
+                # 应用调速（如果有）
+                if speed_f and abs(speed_f - 1.0) > 1e-6:
+                    v_stream = v_stream.filter("setpts", f"{1/speed_f}*PTS")
+                    print(f"[VideoEditor] 通过复杂滤镜图应用调速：{speed_f}x")
+                
+                # 添加字幕（如果有）
+                if subtitle_path and os.path.exists(subtitle_path):
+                    # 使用绝对路径，确保路径格式正确
+                    abs_subtitle_path = os.path.abspath(subtitle_path)
+                    sub_file_raw = abs_subtitle_path.replace("\\", "/")
+                    print(f"[VideoEditor] 通过复杂滤镜图添加字幕，路径：{sub_file_raw}")
+                    v_stream = v_stream.filter("subtitles", filename=sub_file_raw, charenc="UTF-8", 
+                                               force_style="FontName=Microsoft YaHei,FontSize=28,Outline=2,Shadow=1")
+                    print(f"[VideoEditor] 字幕滤镜已添加")
+                
+                # 清除 vf，因为已经通过 filter 方法添加了所有滤镜
+                vf = None
+            else:
+                # 如果没有使用复杂滤镜图，字幕通过 vf 参数添加（已在之前添加到 vf_parts）
+                pass
+            
             if audio_stream is not None:
+                # 构建输出参数
+                output_kwargs = {
+                    "vcodec": "libx264",
+                    "acodec": "aac",
+                }
+                # 添加视频滤镜（如果有，且未使用复杂滤镜图）
+                if vf and not use_complex_filter:
+                    output_kwargs["vf"] = vf
+                
+                # 创建输出流
                 stream = ffmpeg.output(
                     v_stream,
                     audio_stream,
                     output_path,
-                    vcodec="libx264",
-                    acodec="aac",
-                    shortest=None,
-                    **({"vf": vf} if vf else {}),
+                    **output_kwargs
                 )
             else:
-                stream = ffmpeg.output(v_stream, output_path, vcodec="libx264", **({"vf": vf} if vf else {}))
+                output_kwargs = {"vcodec": "libx264"}
+                if vf and not use_complex_filter:
+                    output_kwargs["vf"] = vf
+                stream = ffmpeg.output(v_stream, output_path, **output_kwargs)
 
             # 执行命令
             print(f"[VideoEditor] 开始执行 FFmpeg 命令，输出文件：{output_path}")
@@ -231,6 +350,8 @@ class VideoEditor:
 
             # 4. 清理临时文件
             safe_remove(concat_file)
+            if 'loop_concat_file' in locals() and loop_concat_file:
+                safe_remove(loop_concat_file)
 
             # 验证成品是否存在
             if os.path.exists(output_path):
