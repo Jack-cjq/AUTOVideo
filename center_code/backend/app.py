@@ -46,15 +46,34 @@ app = Flask(__name__, static_folder='../frontend/dist', static_url_path='')
 # ==================== Session 安全配置 ====================
 # 警告：生产环境必须设置强随机 SECRET_KEY！
 # 生成方式：python -c "import secrets; print(secrets.token_hex(32))"
-secret_key = os.getenv('SECRET_KEY', 'your-secret-key-change-in-production')
-if secret_key == 'your-secret-key-change-in-production':
+# 所有密钥必须通过环境变量配置，避免硬编码到代码中
+secret_key = os.getenv('SECRET_KEY', '')
+
+if not secret_key:
     import warnings
-    warnings.warn(
-        '⚠️  警告：正在使用默认的 SECRET_KEY，这在生产环境中是不安全的！\n'
-        '请设置环境变量 SECRET_KEY 或修改配置文件。\n'
-        '生成方式：python -c "import secrets; print(secrets.token_hex(32))"',
-        UserWarning
-    )
+    import secrets
+    # 开发环境：自动生成一个临时密钥（每次启动都会变化）
+    # 生产环境：必须通过环境变量设置固定的 SECRET_KEY
+    is_production = os.getenv('FLASK_ENV') == 'production' or os.getenv('ENVIRONMENT') == 'production'
+    
+    if is_production:
+        raise ValueError(
+            '❌ 错误：生产环境必须设置 SECRET_KEY 环境变量！\n'
+            '请在 .env 文件或系统环境变量中设置 SECRET_KEY。\n'
+            '生成方式：python -c "import secrets; print(secrets.token_hex(32))"'
+        )
+    else:
+        # 开发环境：生成临时密钥并给出警告
+        secret_key = secrets.token_hex(32)
+        warnings.warn(
+            '⚠️  警告：未设置 SECRET_KEY 环境变量，已自动生成临时密钥（仅用于开发环境）\n'
+            '生产环境必须设置固定的 SECRET_KEY 环境变量！\n'
+            '生成方式：python -c "import secrets; print(secrets.token_hex(32))"\n'
+            '然后在 .env 文件中设置：SECRET_KEY=生成的密钥',
+            UserWarning
+        )
+        print(f'ℹ️  开发环境临时 SECRET_KEY 已生成（本次运行有效）')
+
 app.secret_key = secret_key
 
 # 配置 session 安全选项
@@ -212,25 +231,61 @@ def handle_exception(e):
     return response
 
 # 注册所有 Blueprint
-app.register_blueprint(auth_bp)
-app.register_blueprint(devices_bp)
-app.register_blueprint(accounts_bp)
-app.register_blueprint(video_bp)
-app.register_blueprint(chat_bp)
-app.register_blueprint(listen_bp)
-app.register_blueprint(social_bp)
-app.register_blueprint(messages_bp)
-app.register_blueprint(stats_bp)
-app.register_blueprint(login_bp)
-app.register_blueprint(publish_plans_bp)
-app.register_blueprint(merchants_bp)
-app.register_blueprint(video_library_bp)
-app.register_blueprint(data_center_bp)
-app.register_blueprint(video_editor_bp)
-app.register_blueprint(publish_bp)
-app.register_blueprint(material_bp)
-app.register_blueprint(ai_bp)
-app.register_blueprint(editor_bp)
+# 定义模块分类和中文名称
+blueprint_modules = {
+    '认证授权模块': [
+        ('auth', auth_bp),
+        ('login', login_bp),
+    ],
+    '设备管理模块': [
+        ('devices', devices_bp),
+    ],
+    '账号管理模块': [
+        ('accounts', accounts_bp),
+    ],
+    '视频处理模块': [
+        ('video', video_bp),
+        ('video_library', video_library_bp),
+        ('video_editor', video_editor_bp),
+        ('editor', editor_bp),
+    ],
+    'AI功能模块': [
+        ('ai', ai_bp),
+    ],
+    '聊天监听模块': [
+        ('chat', chat_bp),
+        ('listen', listen_bp),
+    ],
+    '社交平台模块': [
+        ('social', social_bp),
+        ('publish', publish_bp),
+        ('publish_plans', publish_plans_bp),
+    ],
+    '消息管理模块': [
+        ('messages', messages_bp),
+    ],
+    '数据统计模块': [
+        ('stats', stats_bp),
+        ('data_center', data_center_bp),
+    ],
+    '商家管理模块': [
+        ('merchants', merchants_bp),
+    ],
+    '素材管理模块': [
+        ('material', material_bp),
+    ],
+}
+
+# 注册所有 Blueprint 并记录状态
+registered_modules = {}
+for category, modules in blueprint_modules.items():
+    registered_modules[category] = []
+    for module_name, blueprint in modules:
+        try:
+            app.register_blueprint(blueprint)
+            registered_modules[category].append((module_name, True, None))
+        except Exception as e:
+            registered_modules[category].append((module_name, False, str(e)))
 
 
 def init_db():
@@ -440,6 +495,57 @@ def is_port_available(port):
         except OSError:
             return False
 
+def print_startup_info():
+    """打印启动信息"""
+    print("\n" + "="*70)
+    print("🚀 抖音中心管理平台 - 启动信息")
+    print("="*70)
+    
+    # 核心模块
+    print("\n【核心模块】")
+    try:
+        from db import get_db
+        from sqlalchemy import text
+        with get_db() as db:
+            db.execute(text('SELECT 1'))
+        print("  ✅ 数据库连接模块 - 已启动")
+    except Exception as e:
+        print(f"  ❌ 数据库连接模块 - 启动失败: {e}")
+    
+    print("  ✅ Session 安全模块 - 已启动")
+    print("  ✅ CORS 跨域模块 - 已启动")
+    print("  ✅ 错误处理模块 - 已启动")
+    
+    # 业务模块
+    print("\n【业务模块】")
+    for category, modules in registered_modules.items():
+        print(f"\n  {category}:")
+        for module_name, success, error in modules:
+            if success:
+                print(f"    ✅ {module_name} - 已启动")
+            else:
+                print(f"    ❌ {module_name} - 启动失败: {error}")
+    
+    # 服务模块
+    print("\n【服务模块】")
+    task_processor_status = False
+    if not os.environ.get('WERKZEUG_RUN_MAIN'):
+        # 这是主进程，不是重载进程
+        try:
+            task_processor = get_task_processor()
+            task_processor.start()
+            print("  ✅ 任务处理器 - 已启动")
+            task_processor_status = True
+        except Exception as e:
+            print(f"  ❌ 任务处理器 - 启动失败: {e}")
+            print("     ⚠️  任务将不会自动执行，需要手动触发")
+    else:
+        # 这是重载进程，不启动任务处理器（主进程的任务处理器会继续运行）
+        print("  ⏸️  任务处理器 - 已跳过（重载模式）")
+    
+    print("\n" + "="*70 + "\n")
+    return task_processor_status
+
 if __name__ == '__main__':
     # 初始化数据库
     init_db()
@@ -470,25 +576,12 @@ if __name__ == '__main__':
             print(f"  3. 设置环境变量: $env:PORT=8080")
             sys.exit(1)
     
-    print(f"\n正在启动服务器...")
-    print(f"访问地址: http://localhost:{port}")
-    print(f"数据库类型: MySQL")
+    # 打印启动信息
+    task_processor_started = print_startup_info()
     
-    # 启动任务处理器（只在主进程中启动，避免调试模式重载时重复启动）
-    if not os.environ.get('WERKZEUG_RUN_MAIN'):
-        # 这是主进程，不是重载进程
-        try:
-            task_processor = get_task_processor()
-            task_processor.start()
-            print("✓ 任务处理器已启动")
-        except Exception as e:
-            print(f"⚠️  警告: 任务处理器启动失败: {e}")
-            print("任务将不会自动执行，需要手动触发")
-    else:
-        # 这是重载进程，不启动任务处理器（主进程的任务处理器会继续运行）
-        pass
-    
-    print(f"按 Ctrl+C 停止服务器\n")
+    print(f"📍 访问地址: http://localhost:{port}")
+    print(f"📊 数据库类型: MySQL")
+    print(f"💡 按 Ctrl+C 停止服务器\n")
     
     try:
         app.run(
@@ -513,8 +606,10 @@ if __name__ == '__main__':
         sys.exit(1)
     finally:
         # 停止任务处理器
-        try:
-            task_processor = get_task_processor()
-            task_processor.stop()
-        except:
-            pass
+        if task_processor_started:
+            try:
+                task_processor = get_task_processor()
+                task_processor.stop()
+                print("\n✅ 任务处理器已停止")
+            except:
+                pass
