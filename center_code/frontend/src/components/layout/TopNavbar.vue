@@ -57,7 +57,7 @@ const handlePublish = () => {
 }
 
 const handleAuthorize = () => {
-  console.log('添加授权')
+  router.push('/accounts')
 }
 
 const handleUserCommand = async (command) => {

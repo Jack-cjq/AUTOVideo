@@ -11,3 +11,7 @@ export const getAccountStats = (params) => {
 export const getAccountRanking = (params) => {
   return apiClient.get('/data-center/account-ranking', { params })
 }
+
+export const getAccountVideos = (params) => {
+  return apiClient.get('/data-center/account-videos', { params })
+}

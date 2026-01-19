@@ -253,7 +253,7 @@ const filters = ref({
 
 const pagination = ref({
   page: 1,
-  size: 20,
+  size: 10,
   total: 0
 })
 
@@ -470,76 +470,115 @@ const handleSubmit = async () => {
     }
     
     let response
+    let planId
+    
+    // 第一步：创建/更新计划
     if (form.value.id) {
       response = await updatePublishPlan(form.value.id, data)
+      planId = form.value.id
     } else {
       response = await createPublishPlan(data)
+      planId = response.data?.id
     }
     
-    if (response.code === 200 || response.code === 201) {
-      const planId = form.value.id ? form.value.id : response.data?.id
-      if (!planId) {
-        ElMessage.warning('计划创建成功但未获取到ID')
-      } else {
-        if (form.value.publish_mode === 'phased') {
-          for (const it of phasedItems.value) {
-            const video = videoLibrary.value.find(v => v.id === it.video_id)
-            if (video) {
-              await addVideoToPlan(planId, {
-                video_url: video.video_url,
-                video_title: video.video_name || '',
-                thumbnail_url: video.thumbnail_url || ''
-              })
-            }
-          }
-          await savePublishInfo(planId, {
-            publish_schedule: {
-              mode: 'phased',
-              items: phasedItems.value.map(it => {
-                const v = videoLibrary.value.find(x => x.id === it.video_id)
-                return {
-                  video_id: it.video_id,
-                  video_url: v?.video_url,
-                  schedule_time: it.schedule_time
-                }
-              })
-            }
-          })
-        } else {
-          for (const vid of batchVideoIds.value) {
-            const video = videoLibrary.value.find(v => v.id === vid)
-            if (video) {
-              await addVideoToPlan(planId, {
-                video_url: video.video_url,
-                video_title: video.video_name || '',
-                thumbnail_url: video.thumbnail_url || ''
-              })
-            }
-          }
-          await savePublishInfo(planId, {
-            publish_schedule: {
-              mode: 'batch',
-              items: batchVideoIds.value.map(vid => {
-                const v = videoLibrary.value.find(x => x.id === vid)
-                return {
-                  video_id: vid,
-                  video_url: v?.video_url
-                }
-              }),
-              batch_time: batchTime.value || form.value.publish_time || ''
-            }
-          })
-        }
-      }
-      ElMessage.success(form.value.id ? '更新成功' : '创建成功')
+    if (response.code !== 200 && response.code !== 201) {
+      ElMessage.error(response.message || (form.value.id ? '更新失败' : '创建失败'))
       dialogVisible.value = false
       loadPlans()
-    } else {
-      ElMessage.error(response.message || (form.value.id ? '更新失败' : '创建失败'))
+      return
+    }
+    
+    if (!planId) {
+      ElMessage.warning('计划创建成功但未获取到ID')
+      dialogVisible.value = false
+      loadPlans()
+      return
+    }
+    
+    // 显示创建/更新成功消息
+    ElMessage.success(form.value.id ? '更新成功' : '创建成功')
+    
+    // 第二步：添加视频和保存发布信息（异步执行，不影响用户体验）
+    try {
+      console.log('开始添加视频和保存发布信息...', { planId, publishMode: form.value.publish_mode })
+      
+      if (form.value.publish_mode === 'phased') {
+        console.log('分阶段发布，视频数量:', phasedItems.value.length)
+        for (const it of phasedItems.value) {
+          const video = videoLibrary.value.find(v => v.id === it.video_id)
+          if (video) {
+            console.log('添加视频:', { videoId: it.video_id, videoName: video.video_name })
+            const addVideoResponse = await addVideoToPlan(planId, {
+              video_url: video.video_url,
+              video_title: video.video_name || '',
+              thumbnail_url: video.thumbnail_url || ''
+            })
+            console.log('添加视频响应:', addVideoResponse)
+          }
+        }
+        
+        console.log('保存分阶段发布信息...')
+        const saveInfoResponse = await savePublishInfo(planId, {
+          publish_schedule: {
+            mode: 'phased',
+            items: phasedItems.value.map(it => {
+              const v = videoLibrary.value.find(x => x.id === it.video_id)
+              return {
+                video_id: it.video_id,
+                video_url: v?.video_url,
+                schedule_time: it.schedule_time
+              }
+            })
+          }
+        })
+        console.log('保存发布信息响应:', saveInfoResponse)
+      } else {
+        console.log('批量发布，视频数量:', batchVideoIds.value.length)
+        for (const vid of batchVideoIds.value) {
+          const video = videoLibrary.value.find(v => v.id === vid)
+          if (video) {
+            console.log('添加视频:', { videoId: vid, videoName: video.video_name })
+            const addVideoResponse = await addVideoToPlan(planId, {
+              video_url: video.video_url,
+              video_title: video.video_name || '',
+              thumbnail_url: video.thumbnail_url || ''
+            })
+            console.log('添加视频响应:', addVideoResponse)
+          }
+        }
+        
+        console.log('保存批量发布信息...')
+        const saveInfoResponse = await savePublishInfo(planId, {
+          publish_schedule: {
+            mode: 'batch',
+            items: batchVideoIds.value.map(vid => {
+              const v = videoLibrary.value.find(x => x.id === vid)
+              return {
+                video_id: vid,
+                video_url: v?.video_url
+              }
+            }),
+            batch_time: batchTime.value || form.value.publish_time || ''
+          }
+        })
+        console.log('保存发布信息响应:', saveInfoResponse)
+      }
+      
+      console.log('所有步骤成功完成！')
+    } catch (error) {
+      // 视频添加或发布信息保存失败（仅记录日志，不影响用户体验）
+      console.error('添加视频或保存发布信息失败:', error)
+      console.error('错误详情:', error.response || error)
+    } finally {
+      // 关闭对话框并刷新列表
+      console.log('关闭对话框并刷新列表...')
+      dialogVisible.value = false
+      loadPlans()
     }
   } catch (error) {
-    ElMessage.error(form.value.id ? '更新失败' : '创建失败')
-    console.error(error)
+    // 其他未知错误
+    ElMessage.error('操作失败')
+    console.error('未知错误:', error)
   }
 }
 

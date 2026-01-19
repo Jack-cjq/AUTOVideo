@@ -174,13 +174,21 @@ def create_publish_plan():
         if not plan_name:
             return response_error('plan_name is required', 400)
         
+        # 先解析 publish_time，确保格式正确
+        parsed_publish_time = None
+        if publish_time:
+            try:
+                parsed_publish_time = datetime.fromisoformat(publish_time)
+            except ValueError:
+                return response_error('Invalid publish_time format. Please use ISO format (YYYY-MM-DD HH:mm:ss)', 400)
+        
         with get_db() as db:
             plan = PublishPlan(
                 plan_name=plan_name,
                 platform=platform,
                 merchant_id=merchant_id,
                 distribution_mode=distribution_mode,
-                publish_time=datetime.fromisoformat(publish_time) if publish_time else None,
+                publish_time=parsed_publish_time,
                 status='pending'
             )
             db.add(plan)
@@ -355,9 +363,16 @@ def update_publish_plan(plan_id):
             if 'status' in data:
                 plan.status = data['status']
             if 'publish_time' in data:
-                plan.publish_time = datetime.fromisoformat(data['publish_time']) if data['publish_time'] else None
+                if data['publish_time']:
+                    try:
+                        plan.publish_time = datetime.fromisoformat(data['publish_time'])
+                    except ValueError:
+                        return response_error('Invalid publish_time format. Please use ISO format (YYYY-MM-DD HH:mm:ss)', 400)
+                else:
+                    plan.publish_time = None
             
             plan.updated_at = datetime.now()
+            
             db.commit()
             
             return response_success({
@@ -493,6 +508,15 @@ def add_video_to_plan(plan_id):
             plan.updated_at = datetime.now()
             
             db.commit()
+            
+            # 如果发布时间接近当前时间（1分钟内），立即触发任务处理
+            now = datetime.now()
+            if plan.publish_time and (now - plan.publish_time).total_seconds() <= 60:
+                print(f"[发布计划] 检测到发布时间接近当前时间，立即触发任务处理: {plan.plan_name} (ID: {plan.id})")
+                # 导入任务处理器并触发处理
+                from services.task_processor import TaskProcessor
+                task_processor = TaskProcessor(poll_interval=0)  # 创建临时处理器，无轮询间隔
+                task_processor._process_pending_tasks()  # 立即处理待处理任务
             
             return response_success({
                 'id': video.id,

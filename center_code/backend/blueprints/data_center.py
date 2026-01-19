@@ -85,6 +85,65 @@ def get_video_stats():
             video_query = db.query(VideoTask)
             if account_id:
                 video_query = video_query.filter(VideoTask.account_id == account_id)
+            if platform:
+                # 根据平台筛选视频
+                # 先获取该平台下所有账号的ID
+                platform_account_ids = [a.id for a in accounts]
+                if platform_account_ids:
+                    video_query = video_query.filter(VideoTask.account_id.in_(platform_account_ids))
+                else:
+                    # 如果该平台下没有账号，则视频数为0
+                    total_videos = 0
+                    published_videos = 0
+                    pending_videos = 0
+                    
+                    # 直接跳转到后续处理
+                    stats_query = db.query(AccountStats)
+                    if account_id:
+                        stats_query = stats_query.filter(AccountStats.account_id == account_id)
+                    if platform:
+                        stats_query = stats_query.filter(AccountStats.platform == platform)
+                    
+                    # 如果指定了日期范围
+                    if start_date and end_date:
+                        start = datetime.fromisoformat(start_date)
+                        end = datetime.fromisoformat(end_date)
+                        stats_query = stats_query.filter(
+                            AccountStats.stat_date >= start,
+                            AccountStats.stat_date <= end
+                        )
+                    else:
+                        # 默认最近7天
+                        end = datetime.now()
+                        start = end - timedelta(days=7)
+                        stats_query = stats_query.filter(
+                            AccountStats.stat_date >= start,
+                            AccountStats.stat_date <= end
+                        )
+                    
+                    stats = stats_query.all()
+                    
+                    # 汇总统计数据
+                    total_followers = sum(s.followers for s in stats)
+                    total_playbacks = sum(s.playbacks for s in stats)
+                    total_likes = sum(s.likes for s in stats)
+                    total_comments = sum(s.comments for s in stats)
+                    total_shares = sum(s.shares for s in stats)
+                    
+                    # 计算净增粉丝（需要对比前后数据，这里简化处理）
+                    net_followers = 0  # TODO: 实现净增粉丝计算
+                    
+                    return response_success({
+                        'authorized_accounts': total_accounts,
+                        'published_videos': published_videos,
+                        'total_followers': total_followers,
+                        'playbacks': total_playbacks,
+                        'likes': total_likes,
+                        'comments': total_comments,
+                        'net_followers': net_followers,
+                        'shares': total_shares,
+                        'pending_videos': pending_videos
+                    })
             
             total_videos = video_query.count()
             published_videos = video_query.filter(VideoTask.status == 'completed').count()
@@ -348,8 +407,8 @@ def create_account_stat():
     返回数据:
         成功 (201):
         {
-            "code": 201,
-            "message": "Stat created",
+            "code": 200,
+            "message": "success",
             "data": {
                 "message": "Account stat created (placeholder)"
             }
@@ -377,6 +436,113 @@ def create_account_stat():
         
         # TODO: 实现统计数据创建逻辑
         return response_success({'message': 'Account stat created (placeholder)'}, 'Stat created', 201)
+    except Exception as e:
+        return response_error(str(e), 500)
+
+
+@data_center_bp.route('/account-videos', methods=['GET'])
+@login_required
+def get_account_videos():
+    """
+    获取账号视频列表接口
+    
+    请求方法: GET
+    路径: /api/data-center/account-videos
+    认证: 需要登录
+    
+    查询参数:
+        account_id (int, 必填): 账号ID
+        platform (string, 可选): 平台类型
+        page (int, 可选): 页码，默认1
+        page_size (int, 可选): 每页数量，默认10
+    
+    返回数据:
+        成功 (200):
+        {
+            "code": 200,
+            "message": "success",
+            "data": {
+                "videos": [
+                    {
+                        "id": int,
+                        "title": string,
+                        "video_url": string,
+                        "status": string,
+                        "created_at": string,
+                        "completed_at": string,
+                        "playbacks": int,
+                        "likes": int,
+                        "comments": int,
+                        "shares": int
+                    },
+                    ...
+                ],
+                "total": int,
+                "page": int,
+                "page_size": int
+            }
+        }
+        
+        失败 (400/500):
+        {
+            "code": 400/500,
+            "message": "错误信息",
+            "data": null
+        }
+    
+    说明:
+        - 返回指定账号的视频列表
+        - 支持分页查询
+        - 视频数据来源于 VideoTask 表
+    """
+    try:
+        account_id = request.args.get('account_id', type=int)
+        platform = request.args.get('platform')
+        page = request.args.get('page', type=int, default=1)
+        page_size = request.args.get('page_size', type=int, default=10)
+        
+        if not account_id:
+            return response_error('account_id is required', 400)
+        
+        with get_db() as db:
+            query = db.query(VideoTask)
+            
+            # 过滤条件
+            query = query.filter(VideoTask.account_id == account_id)
+            
+            # 统计总数
+            total = query.count()
+            
+            # 分页查询
+            offset = (page - 1) * page_size
+            videos = query.order_by(VideoTask.created_at.desc()).offset(offset).limit(page_size).all()
+            
+            # 构造返回数据
+            video_list = []
+            for video in videos:
+                # 获取该视频的统计数据（如果有的话）
+                # 注意：当前没有专门存储视频统计数据的表，所以这些字段暂时返回0
+                video_data = {
+                    "id": video.id,
+                    "video_title": video.video_title or "未命名",
+                    "publish_time": video.completed_at.isoformat() if video.completed_at else None,
+                    "video_url": video.video_url,
+                    "status": video.status,
+                    "created_at": video.created_at.isoformat() if video.created_at else None,
+                    "completed_at": video.completed_at.isoformat() if video.completed_at else None,
+                    "playbacks": 0,  # 暂时返回0，需要实现视频统计功能
+                    "likes": 0,      # 暂时返回0，需要实现视频统计功能
+                    "comments": 0,   # 暂时返回0，需要实现视频统计功能
+                    "shares": 0      # 暂时返回0，需要实现视频统计功能
+                }
+                video_list.append(video_data)
+            
+            return response_success({
+                "videos": video_list,
+                "total": total,
+                "page": page,
+                "page_size": page_size
+            })
     except Exception as e:
         return response_error(str(e), 500)
 

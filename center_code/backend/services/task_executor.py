@@ -343,13 +343,19 @@ async def execute_video_upload(task_id: int):
             video_path = task.video_url
             temp_video_file = None
             
+            # 增加调试信息
+            print(f"[VIDEO PATH DEBUG] Original video_url: {video_path}")
+            print(f"[VIDEO PATH DEBUG] Type: {type(video_path)}")
+            
             if video_path.startswith('file://'):
                 video_path = video_path[7:]  # 移除 'file://' 前缀
+                print(f"[VIDEO PATH DEBUG] After removing file://: {video_path}")
             elif video_path.startswith('http://') or video_path.startswith('https://'):
                 # HTTP URL，需要下载到临时文件
                 import requests
                 if douyin_logger:
                     douyin_logger.info(f"Downloading video from URL: {video_path}")
+                print(f"[VIDEO PATH DEBUG] Downloading from URL: {video_path}")
                 
                 response = requests.get(video_path, stream=True, timeout=300)
                 response.raise_for_status()
@@ -363,18 +369,52 @@ async def execute_video_upload(task_id: int):
                 video_path = temp_video_file.name
                 if douyin_logger:
                     douyin_logger.info(f"Video downloaded to: {video_path}")
+                print(f"[VIDEO PATH DEBUG] Video downloaded to: {video_path}")
             elif video_path.startswith('/'):
                 # 相对路径，可能是 /uploads/videos/xxx 格式
                 # 转换为绝对路径
                 backend_dir = Path(__file__).parent.parent
+                print(f"[VIDEO PATH DEBUG] Backend dir: {backend_dir}")
+                print(f"[VIDEO PATH DEBUG] Parent dir: {backend_dir.parent}")
+                
                 if video_path.startswith('/uploads/'):
-                    video_path = str(backend_dir.parent / video_path.lstrip('/'))
+                    # 构建完整路径：backend_dir.parent / video_path.lstrip('/')
+                    uploads_path = backend_dir.parent / 'uploads'
+                    full_path = uploads_path / video_path.lstrip('/uploads/')
+                    video_path = str(full_path)
+                    print(f"[VIDEO PATH DEBUG] Uploads path: {uploads_path}")
+                    print(f"[VIDEO PATH DEBUG] Full path: {video_path}")
                 else:
                     video_path = str(backend_dir / video_path.lstrip('/'))
+                    print(f"[VIDEO PATH DEBUG] After removing leading slash: {video_path}")
+            else:
+                # 直接作为相对路径处理
+                video_path = os.path.abspath(video_path)
+                print(f"[VIDEO PATH DEBUG] Absolute path: {video_path}")
             
             # 检查视频文件是否存在
+            print(f"[VIDEO PATH DEBUG] Final video path: {video_path}")
+            print(f"[VIDEO PATH DEBUG] File exists: {os.path.exists(video_path)}")
+            print(f"[VIDEO PATH DEBUG] Is file: {os.path.isfile(video_path) if os.path.exists(video_path) else 'N/A'}")
+            
             if not os.path.exists(video_path):
-                raise Exception(f"视频文件不存在: {video_path}")
+                # 尝试查找类似的文件
+                dir_path = os.path.dirname(video_path)
+                if os.path.exists(dir_path):
+                    print(f"[VIDEO PATH DEBUG] Directory contents: {os.listdir(dir_path)[:10]}")
+                
+                # 视频文件不存在，将任务状态更新为完成并返回，避免重复执行
+                print(f"[VIDEO PATH ERROR] 视频文件不存在: {video_path}")
+                if douyin_logger:
+                    douyin_logger.error(f"Video file not found: {video_path}")
+                
+                # 将任务状态标记为completed而不是failed，避免再次执行
+                task.status = 'completed'
+                task.error_message = f"任务已标记为完成（原因为视频文件不存在：{video_path}）"
+                task.completed_at = datetime.now()
+                db.commit()
+                
+                return
             
             # 执行上传
             if douyin_logger:

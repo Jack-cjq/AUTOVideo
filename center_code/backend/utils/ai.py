@@ -13,7 +13,7 @@ from config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
 
 def _get_openai_client():
     try:
-        from openai import OpenAI
+        from openai import OpenAI, APIError
     except Exception as e:
         raise RuntimeError("未安装 openai 依赖，请先 pip install openai") from e
 
@@ -22,7 +22,7 @@ def _get_openai_client():
         raise RuntimeError("缺少 DEEPSEEK_API_KEY 环境变量")
 
     base_url = (DEEPSEEK_BASE_URL or os.environ.get("DEEPSEEK_BASE_URL") or "https://api.deepseek.com").strip()
-    return OpenAI(api_key=api_key, base_url=base_url)
+    return OpenAI(api_key=api_key, base_url=base_url), APIError
 
 
 def deepseek_generate_copies(
@@ -44,7 +44,7 @@ def deepseek_generate_copies(
     count = int(count)
     count = max(1, min(count, 10))
 
-    client = _get_openai_client()
+    client, APIError = _get_openai_client()
     model_name = (model or DEEPSEEK_MODEL or "deepseek-chat").strip()
 
     schema_hint = {
@@ -99,19 +99,26 @@ def deepseek_generate_copies(
     except Exception:
         pass
 
-    resp = client.chat.completions.create(**kwargs)
-    content = (resp.choices[0].message.content or "").strip()
-    if not content:
-        raise RuntimeError("模型未返回内容")
-
     try:
-        data = json.loads(content)
-    except Exception:
-        # 兜底：把原始文本包起来，避免前端直接崩
-        data = {"copies": [], "raw": content}
+        resp = client.chat.completions.create(**kwargs)
+        content = (resp.choices[0].message.content or "").strip()
+        if not content:
+            raise RuntimeError("模型未返回内容")
 
-    copies = data.get("copies")
-    if not isinstance(copies, list):
-        data["copies"] = []
-    return data
+        try:
+            data = json.loads(content)
+        except Exception:
+            # 兜底：把原始文本包起来，避免前端直接崩
+            data = {"copies": [], "raw": content}
+
+        copies = data.get("copies")
+        if not isinstance(copies, list):
+            data["copies"] = []
+        return data
+    except APIError as e:
+        error_message = str(e)
+        if "402" in error_message or "Insufficient Balance" in error_message or "余额不足" in error_message:
+            raise RuntimeError("API调用失败：余额不足，请检查DeepSeek API账户余额") from e
+        else:
+            raise RuntimeError(f"API调用失败：{error_message}") from e
 

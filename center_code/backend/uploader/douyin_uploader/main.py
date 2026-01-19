@@ -66,7 +66,7 @@ async def douyin_cookie_gen(account_file):
 
 class DouYinVideo(object):
     def __init__(self, title, file_path, tags, publish_date, account_file, thumbnail_path=None,
-                 action_delay: float = 0.8, final_display_delay: float = 100.0, account_id: int = None):
+                 action_delay: float = 0.3, final_display_delay: float = 100.0, account_id: int = None):
         self.title = title  # 视频标题
         self.file_path = file_path
         self.tags = tags if isinstance(tags, list) else (tags.split(',') if tags else [])  # 确保tags是列表
@@ -151,7 +151,7 @@ class DouYinVideo(object):
                         # 登录成功，重新导航到上传页面
                         douyin_logger.info("  [-] 重新导航到上传页面...")
                         await page.goto("https://creator.douyin.com/creator-micro/content/upload", wait_until="domcontentloaded")
-                        await asyncio.sleep(2)  # 等待页面加载
+                        await self._human_pause()  # 使用统一的延迟配置，减少等待时间
                         return
                 
                 # 检查登录元素是否还存在
@@ -230,19 +230,13 @@ class DouYinVideo(object):
         label_element = page.locator("[class^='radio']:has-text('定时发布')")
         # 在选中的 label 元素下点击 checkbox
         await label_element.click()
-        await self._human_pause(1.5)
+        await self._human_pause()
         publish_date_hour = publish_date.strftime("%Y-%m-%d %H:%M")
 
-        await self._human_pause()
         await page.locator('.semi-input[placeholder="日期和时间"]').click()
-        await self._human_pause()
         await page.keyboard.press("Control+KeyA")
-        await self._human_pause()
         await page.keyboard.type(str(publish_date_hour))
-        await self._human_pause()
         await page.keyboard.press("Enter")
-
-        await self._human_pause()
 
     async def handle_upload_error(self, page):
         douyin_logger.info('视频出错了，重新上传中')
@@ -424,14 +418,14 @@ class DouYinVideo(object):
                     break
                 else:
                     douyin_logger.info("  [-] 正在上传视频中...")
-                    await self._human_pause(2.5)
+                    await self._human_pause(1.0)
 
                     if await page.locator('div.progress-div > div:has-text("上传失败")').count():
                         douyin_logger.error("  [-] 发现上传出错了... 准备重试")
                         await self.handle_upload_error(page)
             except:
                 douyin_logger.info("  [-] 正在上传视频中...")
-                await self._human_pause(2.5)
+                await self._human_pause(1.0)
 
         #上传视频封面
         await self.set_thumbnail(page, self.thumbnail_path)
@@ -461,20 +455,26 @@ class DouYinVideo(object):
                 douyin_logger.warning(f"publish_date 类型无效: {type(self.publish_date)}，跳过定时发布设置")
 
         # 判断视频是否发布成功
+        publish_button_clicked = False
         while True:
             # 判断视频是否发布成功
             try:
-                publish_button = page.get_by_role('button', name="发布", exact=True)
-                if await publish_button.count():
-                    await publish_button.click()
+                if not publish_button_clicked:
+                    publish_button = page.get_by_role('button', name="发布", exact=True)
+                    if await publish_button.count():
+                        await publish_button.click()
+                        publish_button_clicked = True
+                        douyin_logger.info("  [-] 已点击发布按钮，正在等待发布完成...")
+                
+                # 使用更短的超时时间，避免每次等待3秒
                 await page.wait_for_url("https://creator.douyin.com/creator-micro/content/manage**",
-                                        timeout=3000)  # 如果自动跳转到作品页面，则代表发布成功
+                                        timeout=1000)  # 如果自动跳转到作品页面，则代表发布成功
                 douyin_logger.success("  [-]视频发布成功")
                 break
             except:
                 douyin_logger.info("  [-] 视频正在发布中...")
                 await page.screenshot(full_page=True)
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.3)
 
         # 保存更新后的cookies
         await context.storage_state(path=self.account_file)  # 保存cookie到临时文件
@@ -555,16 +555,11 @@ class DouYinVideo(object):
             await page.wait_for_selector("div.dy-creator-content-modal")
             await self._human_pause()
             await page.click('text="设置竖封面"')
-            await self._human_pause(2)
+            await self._human_pause()
             # 定位到上传区域并点击
             await page.locator("div[class^='semi-upload upload'] >> input.semi-upload-hidden-input").set_input_files(thumbnail_path)
-            await self._human_pause(2)
-            await page.locator("div#tooltip-container button:visible:has-text('完成')").click()
             await self._human_pause()
-            # finish_confirm_element = page.locator("div[class^='confirmBtn'] >> div:has-text('完成')")
-            # if await finish_confirm_element.count():
-            #     await finish_confirm_element.click()
-            # await page.locator("div[class^='footer'] button:has-text('完成')").click()
+            await page.locator("div#tooltip-container button:visible:has-text('完成')").click()
             douyin_logger.info('  [+] 视频封面设置完成！')
             # 等待封面设置对话框关闭
             await page.wait_for_selector("div.extractFooter", state='detached')
