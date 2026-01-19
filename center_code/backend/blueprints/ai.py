@@ -15,7 +15,7 @@ from db import get_db
 
 # 导入工具函数
 from utils.ai import deepseek_generate_copies
-from utils.baidu_tts import synthesize_speech, synthesize_speech_with_timestamps
+from utils.dashscope_tts import synthesize_speech, synthesize_speech_with_timestamps, list_voices_for_frontend
 from utils.baidu_asr import recognize_speech
 from utils.subtitles import generate_srt_items, new_srt_filename, render_srt, generate_srt_from_timestamps
 
@@ -125,6 +125,8 @@ def ai_tts_voices():
             ]
         }
     """
+    return response_success(list_voices_for_frontend(), "ok")
+
     voices = [
         {"id": 0, "key": "female", "name": "标准女声"},
         {"id": 1, "key": "male", "name": "标准男声"},

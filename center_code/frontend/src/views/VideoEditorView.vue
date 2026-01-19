@@ -2222,7 +2222,16 @@ onMounted(async () => {
   // 加载 TTS 音色列表
   aiApi.getTtsVoices().then(response => {
     if (response.code === 200) {
-      ttsVoices.value = response.data || ttsVoices.value
+      const list = Array.isArray(response.data) ? response.data : []
+      if (list.length > 0) {
+        ttsVoices.value = list
+
+        const current = Number(ttsForm.value.voice)
+        const hasCurrent = ttsVoices.value.some(v => Number(v.id) === current)
+        if (!hasCurrent) {
+          ttsForm.value.voice = Number(ttsVoices.value[0]?.id ?? 0)
+        }
+      }
     }
   }).catch(() => {})
   

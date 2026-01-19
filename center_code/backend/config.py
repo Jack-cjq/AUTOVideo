@@ -10,8 +10,17 @@
 .env 文件示例请参考 env.example 文件
 """
 import os
+import json
+import sys
 from pathlib import Path
 from dotenv import load_dotenv
+
+# Ensure stdout/stderr can print Unicode on Windows consoles.
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+except Exception:
+    pass
 
 # 加载 .env 文件
 # 从当前文件所在目录查找 .env 文件
@@ -93,6 +102,23 @@ BAIDU_API_KEY = os.environ.get("BAIDU_API_KEY", "")
 BAIDU_SECRET_KEY = os.environ.get("BAIDU_SECRET_KEY", "")
 # 客户端唯一标识：可用机器名/UUID，留空则后端自动生成
 BAIDU_CUID = os.environ.get("BAIDU_CUID", "")
+
+# =========================
+# TTS (DashScope CosyVoice)
+# =========================
+DASHSCOPE_API_KEY = os.environ.get("DASHSCOPE_API_KEY", "")
+COSYVOICE_MODEL = os.environ.get("COSYVOICE_MODEL", "cosyvoice-v3-flash")
+TTS_VOICES_JSON = os.environ.get("TTS_VOICES_JSON", "")
+
+if TTS_VOICES_JSON:
+    try:
+        if not isinstance(json.loads(TTS_VOICES_JSON), list):
+            print("[WARN] TTS_VOICES_JSON is not a JSON array; it will be ignored")
+    except Exception:
+        print("[WARN] TTS_VOICES_JSON parse failed; it will be ignored")
+
+if not DASHSCOPE_API_KEY:
+    print("[INFO] DASHSCOPE_API_KEY not set (DashScope TTS will fail until configured)")
 
 # 如果缺少必要的百度TTS配置，给出提示
 if not BAIDU_APP_ID or not BAIDU_API_KEY or not BAIDU_SECRET_KEY:
