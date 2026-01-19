@@ -533,15 +533,15 @@ def print_startup_info():
         # 这是主进程，不是重载进程
         try:
             task_processor = get_task_processor()
-            task_processor.start()
-            print("  ✅ 任务处理器 - 已启动")
+            task_processor.start()  # 启动定时任务检查器（轻量级，只检查定时任务）
+            print("  ✅ 定时任务检查器 - 已启动（每60秒检查一次定时任务）")
             task_processor_status = True
         except Exception as e:
-            print(f"  ❌ 任务处理器 - 启动失败: {e}")
-            print("     ⚠️  任务将不会自动执行，需要手动触发")
+            print(f"  ❌ 定时任务检查器 - 启动失败: {e}")
+            print("     ⚠️  定时发布任务将不会自动执行")
     else:
-        # 这是重载进程，不启动任务处理器（主进程的任务处理器会继续运行）
-        print("  ⏸️  任务处理器 - 已跳过（重载模式）")
+        # 这是重载进程，不启动定时检查器（主进程的检查器会继续运行）
+        print("  ⏸️  定时任务检查器 - 已跳过（重载模式）")
     
     print("\n" + "="*70 + "\n")
     return task_processor_status
@@ -605,11 +605,11 @@ if __name__ == '__main__':
             print(f"\n❌ 启动服务器时出错: {e}")
         sys.exit(1)
     finally:
-        # 停止任务处理器
+        # 停止定时任务检查器
         if task_processor_started:
             try:
                 task_processor = get_task_processor()
                 task_processor.stop()
-                print("\n✅ 任务处理器已停止")
+                print("\n✅ 定时任务检查器已停止")
             except:
                 pass

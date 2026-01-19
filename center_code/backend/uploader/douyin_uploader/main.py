@@ -298,9 +298,34 @@ class DouYinVideo(object):
         
         # 使用 Chromium 浏览器启动一个浏览器实例
         if self.local_executable_path:
+            # 检查路径是否存在
+            if not os.path.exists(self.local_executable_path):
+                error_msg = (
+                    f"Chrome 浏览器路径不存在: {self.local_executable_path}\n"
+                    f"请检查 conf.py 中的 LOCAL_CHROME_PATH 配置，或设置环境变量 LOCAL_CHROME_PATH\n"
+                    f"常见路径：\n"
+                    f"  - C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe\n"
+                    f"  - C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe\n"
+                    f"  - {os.path.expanduser('~')}\\AppData\\Local\\Google\\Chrome\\Application\\chrome.exe"
+                )
+                douyin_logger.error(error_msg)
+                raise FileNotFoundError(error_msg)
+            
             browser_name = "Edge" if "Edge" in self.local_executable_path else "Chrome" if "Chrome" in self.local_executable_path else "Chromium"
             douyin_logger.info(f"[浏览器] 使用 {browser_name} 浏览器: {self.local_executable_path}")
-            browser = await playwright.chromium.launch(headless=self.headless, executable_path=self.local_executable_path)
+            try:
+                browser = await playwright.chromium.launch(headless=self.headless, executable_path=self.local_executable_path)
+            except Exception as e:
+                error_msg = (
+                    f"无法启动 Chrome 浏览器: {e}\n"
+                    f"路径: {self.local_executable_path}\n"
+                    f"请确保：\n"
+                    f"  1. Chrome 浏览器已正确安装\n"
+                    f"  2. 路径配置正确\n"
+                    f"  3. 有足够的权限访问该路径"
+                )
+                douyin_logger.error(error_msg)
+                raise
         else:
             douyin_logger.info("[浏览器] 使用默认 Chromium 浏览器（未指定路径）")
             browser = await playwright.chromium.launch(headless=self.headless)
@@ -456,7 +481,16 @@ class DouYinVideo(object):
 
         # 判断视频是否发布成功
         publish_button_clicked = False
+        max_wait_time = 120  # 最大等待时间（秒）
+        start_time = asyncio.get_event_loop().time()
+        
         while True:
+            # 检查是否超时
+            elapsed_time = asyncio.get_event_loop().time() - start_time
+            if elapsed_time > max_wait_time:
+                douyin_logger.error(f"  [-] 等待发布完成超时（{max_wait_time}秒），可能发布失败")
+                raise TimeoutError(f"等待发布完成超时（{max_wait_time}秒）")
+            
             # 判断视频是否发布成功
             try:
                 if not publish_button_clicked:
@@ -465,16 +499,66 @@ class DouYinVideo(object):
                         await publish_button.click()
                         publish_button_clicked = True
                         douyin_logger.info("  [-] 已点击发布按钮，正在等待发布完成...")
+                        await self._human_pause(1.0)  # 点击后等待一下
                 
-                # 使用更短的超时时间，避免每次等待3秒
-                await page.wait_for_url("https://creator.douyin.com/creator-micro/content/manage**",
-                                        timeout=1000)  # 如果自动跳转到作品页面，则代表发布成功
-                douyin_logger.success("  [-]视频发布成功")
-                break
-            except:
-                douyin_logger.info("  [-] 视频正在发布中...")
-                await page.screenshot(full_page=True)
-                await asyncio.sleep(0.3)
+                # 检查当前URL，如果已经跳转到作品管理页面，说明发布成功
+                current_url = page.url
+                if "creator.douyin.com/creator-micro/content/manage" in current_url:
+                    douyin_logger.success("  [-]视频发布成功（已跳转到作品管理页面）")
+                    break
+                
+                # 尝试等待URL跳转（使用较短的超时时间，避免阻塞）
+                try:
+                    await page.wait_for_url("https://creator.douyin.com/creator-micro/content/manage**",
+                                            timeout=2000)  # 2秒超时
+                    douyin_logger.success("  [-]视频发布成功（URL已跳转）")
+                    break
+                except:
+                    # URL未跳转，继续检查其他成功标志
+                    pass
+                
+                # 检查是否有成功提示或错误提示
+                # 检查是否有"发布成功"或类似的提示
+                success_indicators = [
+                    page.locator('text=发布成功'),
+                    page.locator('text=发布完成'),
+                    page.locator('[class*="success"]'),
+                ]
+                
+                for indicator in success_indicators:
+                    if await indicator.count() > 0:
+                        douyin_logger.success("  [-]视频发布成功（检测到成功提示）")
+                        # 等待一下，确保页面跳转
+                        await asyncio.sleep(2)
+                        break
+                else:
+                    # 没有找到成功提示，继续等待
+                    pass
+                
+                # 检查是否有错误提示
+                error_indicators = [
+                    page.locator('text=发布失败'),
+                    page.locator('text=上传失败'),
+                    page.locator('[class*="error"]'),
+                ]
+                
+                for indicator in error_indicators:
+                    if await indicator.count() > 0:
+                        error_text = await indicator.first.inner_text() if await indicator.count() > 0 else "未知错误"
+                        douyin_logger.error(f"  [-] 检测到错误提示: {error_text}")
+                        raise Exception(f"发布失败: {error_text}")
+                
+            except TimeoutError:
+                raise  # 重新抛出超时错误
+            except Exception as e:
+                if "发布失败" in str(e) or "上传失败" in str(e):
+                    raise  # 重新抛出错误
+                # 其他异常，继续等待
+                pass
+            
+            # 等待一段时间后继续检查
+            douyin_logger.info(f"  [-] 视频正在发布中...（已等待 {int(elapsed_time)} 秒）")
+            await asyncio.sleep(1.0)  # 增加等待时间到1秒，减少日志输出频率
 
         # 保存更新后的cookies
         await context.storage_state(path=self.account_file)  # 保存cookie到临时文件

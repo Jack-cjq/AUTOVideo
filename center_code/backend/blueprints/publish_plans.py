@@ -7,7 +7,7 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils import response_success, response_error, login_required
-from models import PublishPlan, PlanVideo, Merchant
+from models import PublishPlan, PlanVideo, Merchant, VideoTask
 from db import get_db
 
 publish_plans_bp = Blueprint('publish_plans', __name__, url_prefix='/api/publish-plans')
@@ -425,6 +425,17 @@ def delete_publish_plan(plan_id):
             if not plan:
                 return response_error('Publish plan not found', 404)
             
+            # 先查出关联的视频，用于删除对应的视频任务
+            videos = db.query(PlanVideo).filter(PlanVideo.plan_id == plan_id).all()
+            video_urls = [v.video_url for v in videos if v.video_url]
+            
+            if video_urls:
+                # 删除与这些视频相关的视频任务（无论状态如何，全部清理）
+                deleted_tasks = db.query(VideoTask).filter(
+                    VideoTask.video_url.in_(video_urls)
+                ).delete(synchronize_session=False)
+                print(f"[发布计划] 删除计划 {plan_id} 时，一并删除关联视频任务数量: {deleted_tasks}")
+            
             # 删除关联的视频
             db.query(PlanVideo).filter(PlanVideo.plan_id == plan_id).delete()
             
@@ -494,6 +505,21 @@ def add_video_to_plan(plan_id):
             if not plan:
                 return response_error('Publish plan not found', 404)
             
+            # 检查视频是否已经存在于该计划中（避免重复添加）
+            existing_video = db.query(PlanVideo).filter(
+                PlanVideo.plan_id == plan_id,
+                PlanVideo.video_url == video_url
+            ).first()
+            
+            if existing_video:
+                # 如果视频已存在，返回已存在的视频信息（不报错，但提示用户）
+                return response_success({
+                    'id': existing_video.id,
+                    'video_url': existing_video.video_url,
+                    'video_title': existing_video.video_title,
+                    'message': 'Video already exists in this plan'
+                }, 'Video already exists in this plan', 200)
+            
             video = PlanVideo(
                 plan_id=plan_id,
                 video_url=video_url,
@@ -509,14 +535,26 @@ def add_video_to_plan(plan_id):
             
             db.commit()
             
-            # 如果发布时间接近当前时间（1分钟内），立即触发任务处理
+            # 如果发布时间接近当前时间（1分钟内），触发任务处理
+            # 注意：使用全局任务处理器，避免数据库会话冲突
             now = datetime.now()
             if plan.publish_time and (now - plan.publish_time).total_seconds() <= 60:
-                print(f"[发布计划] 检测到发布时间接近当前时间，立即触发任务处理: {plan.plan_name} (ID: {plan.id})")
-                # 导入任务处理器并触发处理
-                from services.task_processor import TaskProcessor
-                task_processor = TaskProcessor(poll_interval=0)  # 创建临时处理器，无轮询间隔
-                task_processor._process_pending_tasks()  # 立即处理待处理任务
+                print(f"[发布计划] 检测到发布时间接近当前时间，将在数据库会话外触发任务处理: {plan.plan_name} (ID: {plan.id})")
+                # 使用全局任务处理器，在数据库会话外触发处理
+                def trigger_task_processing():
+                    try:
+                        from services.task_processor import get_task_processor
+                        task_processor = get_task_processor()
+                        task_processor._process_pending_tasks()
+                    except Exception as e:
+                        print(f"[发布计划] 触发任务处理失败: {e}")
+                        import traceback
+                        traceback.print_exc()
+                
+                # 在后台线程中触发，避免阻塞当前请求和数据库会话冲突
+                import threading
+                thread = threading.Thread(target=trigger_task_processing, daemon=True)
+                thread.start()
             
             return response_success({
                 'id': video.id,
@@ -579,131 +617,6 @@ def save_publish_info(plan_id):
         data = request.json
         # TODO: 实现保存发布信息的逻辑
         return response_success({'plan_id': plan_id}, 'Publish info saved (placeholder)')
-    except Exception as e:
-        return response_error(str(e), 500)
-
-
-@publish_plans_bp.route('/<int:plan_id>/distribute', methods=['POST'])
-@login_required
-def distribute_plan(plan_id):
-    """
-    分发发布计划接口（占位接口，复杂功能待实现）
-    
-    请求方法: POST
-    路径: /api/publish-plans/{plan_id}/distribute
-    认证: 需要登录
-    
-    路径参数:
-        plan_id (int): 发布计划ID
-    
-    请求体 (JSON):
-        {
-            "distribution_mode": "string",  # 可选，分发模式（manual/sms/qrcode/ai），默认使用计划配置
-            "account_ids": []               # 可选，指定账号ID列表（手动分发时使用）
-        }
-    
-    返回数据:
-        成功 (200):
-        {
-            "code": 200,
-            "message": "Plan distributed (placeholder)",
-            "data": {
-                "plan_id": int,
-                "distribution_mode": "string",
-                "distributed_count": int
-            }
-        }
-        
-        失败 (404/500):
-        {
-            "code": 404/500,
-            "message": "错误信息",
-            "data": null
-        }
-    
-    说明:
-        - 此接口为占位接口，具体实现待开发
-        - 根据分发模式（manual/sms/qrcode/ai）将发布计划中的视频分发给账号
-        - manual: 手动指定账号列表
-        - sms: 通过短信接收任务分配
-        - qrcode: 通过扫描二维码领取任务
-        - ai: AI智能分配任务给合适的账号
-        - 如果计划不存在，返回 404 错误
-    """
-    try:
-        data = request.json
-        # TODO: 实现分发逻辑
-        return response_success({
-            'plan_id': plan_id,
-            'distribution_mode': data.get('distribution_mode', 'manual'),
-            'distributed_count': 0
-        }, 'Plan distributed (placeholder)')
-    except Exception as e:
-        return response_error(str(e), 500)
-
-
-@publish_plans_bp.route('/<int:plan_id>/claim', methods=['POST'])
-@login_required
-def claim_plan_video(plan_id):
-    """
-    领取发布计划中的视频接口（占位接口，复杂功能待实现）
-    
-    请求方法: POST
-    路径: /api/publish-plans/{plan_id}/claim
-    认证: 需要登录
-    
-    路径参数:
-        plan_id (int): 发布计划ID
-    
-    请求体 (JSON):
-        {
-            "account_id": int,        # 必填，账号ID
-            "video_id": int           # 可选，视频ID，如果不指定则自动分配一个待发布的视频
-        }
-    
-    返回数据:
-        成功 (200):
-        {
-            "code": 200,
-            "message": "Video claimed (placeholder)",
-            "data": {
-                "plan_id": int,
-                "account_id": int,
-                "video_id": int,
-                "status": "string"
-            }
-        }
-        
-        失败 (400/404/500):
-        {
-            "code": 400/404/500,
-            "message": "错误信息",
-            "data": null
-        }
-    
-    说明:
-        - 此接口为占位接口，具体实现待开发
-        - 用于账号领取发布计划中的视频任务（适用于二维码分发模式）
-        - 如果指定了 video_id，则领取指定的视频
-        - 如果未指定 video_id，则自动分配一个待发布的视频给该账号
-        - 领取成功后会更新 claimed_count
-        - 如果计划或账号不存在，返回 404 错误
-    """
-    try:
-        data = request.json
-        account_id = data.get('account_id')
-        video_id = data.get('video_id')
-        
-        if not account_id:
-            return response_error('account_id is required', 400)
-        
-        # TODO: 实现领取逻辑
-        return response_success({
-            'plan_id': plan_id,
-            'account_id': account_id,
-            'video_id': video_id,
-            'status': 'claimed'
-        }, 'Video claimed (placeholder)')
     except Exception as e:
         return response_error(str(e), 500)
 
