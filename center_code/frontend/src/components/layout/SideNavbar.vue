@@ -26,6 +26,11 @@
         <template #title>发布计划</template>
       </el-menu-item>
       
+      <el-menu-item index="/publish-history">
+        <el-icon><Clock /></el-icon>
+        <template #title>发布历史</template>
+      </el-menu-item>
+      
       <el-menu-item index="/accounts">
         <el-icon><UserFilled /></el-icon>
         <template #title>授权管理</template>

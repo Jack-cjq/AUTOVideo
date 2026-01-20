@@ -37,6 +37,9 @@ else:
     else:
         print("ℹ️  未找到 .env 文件，将使用系统环境变量或默认值")
 
+# 数据库类型配置
+DB_TYPE = os.getenv('DB_TYPE', 'mysql')  # 可选: mysql, sqlite
+
 # MySQL 配置
 # 所有配置都从环境变量读取，避免硬编码敏感信息
 # 请在 .env 文件中配置这些值
@@ -49,35 +52,44 @@ MYSQL_CONFIG = {
     'charset': 'utf8mb4'
 }
 
-# 检查必要的数据库配置
-missing_config = []
-if not MYSQL_CONFIG['database']:
-    missing_config.append('DB_NAME')
-if not MYSQL_CONFIG['user']:
-    missing_config.append('DB_USER')
-if not MYSQL_CONFIG['password']:
-    missing_config.append('DB_PASSWORD')
+# SQLite 配置
+SQLITE_CONFIG = {
+    'database': os.getenv('SQLITE_DB', 'autovideo.db')
+}
 
-if missing_config:
-    print("\n⚠️  警告：数据库配置不完整！")
-    print(f"缺少以下配置项: {', '.join(missing_config)}")
-    print("请在 .env 文件中设置这些环境变量，或参考 env.example 文件")
-    print("示例：")
-    print("  DB_HOST=localhost")
-    print("  DB_PORT=3306")
-    print("  DB_NAME=autovideo")
-    print("  DB_USER=root")
-    print("  DB_PASSWORD=your_password")
-    print()
+# 检查必要的数据库配置（仅当使用MySQL时）
+if DB_TYPE == 'mysql':
+    missing_config = []
+    if not MYSQL_CONFIG['database']:
+        missing_config.append('DB_NAME')
+    if not MYSQL_CONFIG['user']:
+        missing_config.append('DB_USER')
+    if not MYSQL_CONFIG['password']:
+        missing_config.append('DB_PASSWORD')
+
+    if missing_config:
+        print("\n⚠️  警告：MySQL数据库配置不完整！")
+        print(f"缺少以下配置项: {', '.join(missing_config)}")
+        print("建议使用SQLite作为备选数据库，设置 DB_TYPE=sqlite")
+        print("示例：")
+        print("  DB_TYPE=sqlite")
+        print("  SQLITE_DB=autovideo.db")
+        print()
 
 def get_db_config():
     """获取数据库配置"""
+    if DB_TYPE == 'sqlite':
+        return SQLITE_CONFIG
     return MYSQL_CONFIG
 
 def get_db_url():
     """获取数据库连接URL"""
-    config = get_db_config()
-    return f"mysql+pymysql://{config['user']}:{config['password']}@{config['host']}:{config['port']}/{config['database']}?charset={config['charset']}&collation=utf8mb4_bin"
+    if DB_TYPE == 'sqlite':
+        config = get_db_config()
+        return f"sqlite:///{config['database']}"
+    else:
+        config = get_db_config()
+        return f"mysql+pymysql://{config['user']}:{config['password']}@{config['host']}:{config['port']}/{config['database']}?charset={config['charset']}&collation=utf8mb4_bin"
 
 
 # =========================

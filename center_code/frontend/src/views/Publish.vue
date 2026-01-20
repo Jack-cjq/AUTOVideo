@@ -4,76 +4,8 @@
       <template #header>
         <div class="card-header">
           <h3>立即发布</h3>
-          <el-button type="info" @click="showHistory = !showHistory">
-            <el-icon><Clock /></el-icon>
-            {{ showHistory ? '隐藏' : '查看' }}发布历史
-          </el-button>
         </div>
       </template>
-
-      <!-- 发布历史 -->
-      <el-collapse-transition>
-        <div v-show="showHistory" class="history-section">
-          <h4>最近发布记录</h4>
-          <el-table :data="safePublishHistory" stripe style="width: 100%" v-loading="historyLoading">
-            <el-table-column prop="video_title" label="视频标题" min-width="150" />
-            <el-table-column prop="account_name" label="发布账号" width="120" />
-            <el-table-column prop="platform" label="平台" width="100">
-              <template #default="{ row }">
-                {{ getPlatformText(row.platform) }}
-              </template>
-            </el-table-column>
-            <el-table-column prop="status" label="状态" width="100">
-              <template #default="{ row }">
-                <el-tag :type="getStatusType(row.status)">{{ getStatusText(row.status) }}</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column prop="publish_time" label="发布时间" width="180">
-              <template #default="{ row }">
-                {{
-                  row.status === 'completed' && row.completed_at
-                    ? new Date(row.completed_at).toLocaleString('zh-CN')
-                    : row.created_at
-                    ? new Date(row.created_at).toLocaleString('zh-CN')
-                    : '-'
-                }}
-              </template>
-            </el-table-column>
-            <el-table-column prop="progress" label="进度" width="120">
-              <template #default="{ row }">
-                <el-progress 
-                  :percentage="row.progress || 0" 
-                  :status="row.status === 'failed' ? 'exception' : (row.status === 'completed' ? 'success' : '')"
-                  :stroke-width="8"
-                />
-              </template>
-            </el-table-column>
-            <el-table-column prop="error_message" label="错误信息" min-width="200" show-overflow-tooltip>
-              <template #default="{ row }">
-                <span v-if="row.error_message" style="color: #f56c6c;">{{ row.error_message }}</span>
-                <span v-else>-</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="操作" width="150">
-              <template #default="{ row }">
-                <el-button link type="primary" size="small" @click="handleViewDetail(row)">详情</el-button>
-                <el-button link type="danger" size="small" @click="handleDeleteTask(row)" v-if="row.status === 'pending' || row.status === 'failed'">删除</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
-          <div class="pagination-wrapper">
-            <el-pagination
-              :current-page="historyPagination.page"
-              :page-size="historyPagination.size"
-              :total="historyPagination.total"
-              :page-sizes="[10, 20, 50]"
-              layout="total, sizes, prev, pager, next"
-              @size-change="(size) => { historyPagination.size = size; loadPublishHistory(); }"
-              @current-change="(page) => { historyPagination.page = page; loadPublishHistory(); }"
-            />
-          </div>
-        </div>
-      </el-collapse-transition>
 
       <!-- 发布表单 -->
       <el-steps :active="currentStep" finish-status="success" style="margin: 30px 0;">
@@ -552,32 +484,6 @@ const videoSource = ref('upload')
 const selectedPlatforms = ref([])
 const publishType = ref('immediate')
 const publishInterval = ref(30)
-const showHistory = ref(false)
-
-// 监听showHistory变化，自动加载数据
-watch(showHistory, (newVal) => {
-  if (newVal && publishHistory.value.length === 0) {
-    loadPublishHistory()
-  }
-})
-const historyLoading = ref(false)
-const publishHistory = ref([])
-
-// 确保表格数据始终是数组的计算属性
-const safePublishHistory = computed(() => {
-  const history = publishHistory.value
-  if (!Array.isArray(history)) {
-    console.warn('publishHistory is not an array, converting to array:', history)
-    return []
-  }
-  return history
-})
-
-const historyPagination = ref({
-  page: 1,
-  size: 10,
-  total: 0
-})
 
 const popularTags = ref([
   '搞笑', '美食', '旅游', '音乐', '舞蹈', '宠物', '科技', '时尚', '健身', '教育',
@@ -718,38 +624,7 @@ const loadVideoLibrary = async () => {
   }
 }
 
-const loadPublishHistory = async () => {
-  try {
-    historyLoading.value = true
-    const response = await api.post('/publish/history', {
-      page: historyPagination.value.page,
-      size: historyPagination.value.size
-    })
-    console.log('发布历史响应:', response)
-    
-    if (response && response.code === 200) {
-      const list = response.data?.list || []
-      publishHistory.value = Array.isArray(list) ? list : []
-      historyPagination.value.total = response.data?.total || 0
-      console.log('加载的发布历史数量:', publishHistory.value.length)
-      console.log('发布历史数据:', publishHistory.value)
-    } else {
-      console.error('加载发布历史失败:', response?.message || '未知错误')
-      publishHistory.value = []
-      historyPagination.value.total = 0
-    }
-  } catch (error) {
-    console.error('加载发布历史失败:', error)
-    publishHistory.value = []
-    historyPagination.value.total = 0
-    // 如果是401错误，不显示错误（已经由拦截器处理）
-    if (error.code !== 401) {
-      ElMessage.error('加载发布历史失败: ' + (error.message || '未知错误'))
-    }
-  } finally {
-    historyLoading.value = false
-  }
-}
+
 
 // 获取平台账号数量
 const getPlatformAccountCount = (platform) => {
@@ -1179,48 +1054,7 @@ const handleSubmit = async () => {
   }
 }
 
-const handleViewDetail = (row) => {
-  ElMessageBox.alert(
-    `<div style="text-align: left;">
-      <p><strong>任务ID:</strong> ${row.id}</p>
-      <p><strong>视频标题:</strong> ${row.video_title || '-'}</p>
-      <p><strong>账号:</strong> ${row.account_name || '-'}</p>
-      <p><strong>平台:</strong> ${getPlatformText(row.platform)}</p>
-      <p><strong>状态:</strong> ${getStatusText(row.status)}</p>
-      <p><strong>进度:</strong> ${row.progress || 0}%</p>
-      <p><strong>创建时间:</strong> ${row.created_at ? new Date(row.created_at).toLocaleString('zh-CN') : '-'}</p>
-      <p><strong>开始时间:</strong> ${row.started_at ? new Date(row.started_at).toLocaleString('zh-CN') : '-'}</p>
-      <p><strong>完成时间:</strong> ${row.completed_at ? new Date(row.completed_at).toLocaleString('zh-CN') : '-'}</p>
-      ${row.error_message ? `<p><strong>错误信息:</strong> <span style="color: #f56c6c;">${row.error_message}</span></p>` : ''}
-    </div>`,
-    '任务详情',
-    {
-      dangerouslyUseHTMLString: true,
-      confirmButtonText: '关闭'
-    }
-  )
-}
 
-const handleDeleteTask = async (row) => {
-  try {
-    await ElMessageBox.confirm('确定要删除该任务吗？', '提示', {
-      type: 'warning'
-    })
-    
-    const response = await api.video.deleteTask(row.id)
-    if (response.code === 200) {
-      ElMessage.success('删除成功')
-      loadPublishHistory()
-    } else {
-      ElMessage.error(response.message || '删除失败')
-    }
-  } catch (error) {
-    if (error !== 'cancel') {
-      ElMessage.error(error.message || '删除失败')
-      console.error(error)
-    }
-  }
-}
 
 const handleReset = () => {
   form.value = {

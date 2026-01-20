@@ -45,6 +45,12 @@ const routes = [
         meta: { requiresAuth: true, title: 'Publish Plan' }
       },
       {
+        path: 'publish-history',
+        name: 'PublishHistory',
+        component: () => import('../views/PublishHistory.vue'),
+        meta: { requiresAuth: true, title: 'Publish History' }
+      },
+      {
         path: 'accounts',
         name: 'Accounts',
         component: () => import('../views/Accounts.vue'),
