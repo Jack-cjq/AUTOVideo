@@ -16,7 +16,7 @@ from db import get_db
 # 导入工具函数
 from utils.ai import deepseek_generate_copies
 from utils.dashscope_tts import synthesize_speech, synthesize_speech_with_timestamps, list_voices_for_frontend
-from utils.baidu_asr import recognize_speech
+from utils.asr_service import recognize_text_and_timestamps
 from utils.subtitles import generate_srt_items, new_srt_filename, render_srt, generate_srt_from_timestamps
 
 logger = logging.getLogger(__name__)
@@ -460,11 +460,12 @@ def ai_subtitle_srt():
 
         # 如果文案为空且启用了自动识别，从音频中识别文字
         recognized_text = None
+        recognized_timestamps = None
         if not text and auto_recognize:
             try:
                 logger.info("开始从音频识别文字...")
-                # 检测音频格式（recognize_speech会自动处理格式转换）
-                text = recognize_speech(abs_audio)
+                # 支持可切换的 ASR 提供方（默认 baidu；可选 iflytek_lfasr 返回时间戳）
+                text, recognized_timestamps = recognize_text_and_timestamps(abs_audio)
                 recognized_text = text
                 logger.info(f"语音识别成功，识别出 {len(text)} 个字符: {text[:100]}...")
                 
@@ -555,6 +556,8 @@ def ai_subtitle_srt():
         try:
             # 检查是否提供了时间戳（从请求中获取，或从音频素材的metadata中获取）
             timestamps = data.get("timestamps")  # 前端可以传递时间戳
+            if not timestamps and recognized_timestamps:
+                timestamps = recognized_timestamps
             
             if timestamps and isinstance(timestamps, list) and len(timestamps) > 0:
                 # 使用时间戳生成字幕（更准确）
@@ -568,6 +571,13 @@ def ai_subtitle_srt():
                 items = generate_srt_items(text=text, total_duration_sec=duration)
                 srt_text = render_srt(items)
                 logger.info(f"字幕生成成功: {len(items)} 条字幕项")
+                # 如果是自动语音识别得到的文案，回传“时间戳”用于前端/排查
+                # 注意：此时间戳为后端按文本权重分配的近似时间轴，可避免无标点导致字幕整段铺满
+                if recognized_text:
+                    timestamps = [
+                        {"text": it.text, "start": it.start, "end": it.end, "duration": it.end - it.start}
+                        for it in items
+                    ]
         except Exception as e:
             logger.exception(f"生成字幕失败: {e}")
             return response_error(f"生成字幕失败：{str(e)}", 500)
@@ -606,6 +616,8 @@ def ai_subtitle_srt():
         # 如果是从音频识别的文字，也返回识别结果
         if recognized_text:
             result_data["recognized_text"] = recognized_text
+        if timestamps:
+            result_data["timestamps"] = timestamps
 
         return response_success(result_data, "ok")
     

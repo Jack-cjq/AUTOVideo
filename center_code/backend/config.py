@@ -116,6 +116,21 @@ BAIDU_SECRET_KEY = os.environ.get("BAIDU_SECRET_KEY", "")
 BAIDU_CUID = os.environ.get("BAIDU_CUID", "")
 
 # =========================
+# ASR Provider (optional)
+# =========================
+# baidu (default) | iflytek_lfasr
+ASR_PROVIDER = os.environ.get("ASR_PROVIDER", "baidu")
+
+# iFlytek (讯飞) 录音文件转写（可选，用于返回更精确的时间戳）
+IFLYTEK_APPID = os.environ.get("IFLYTEK_APPID", "")
+IFLYTEK_SECRET_KEY = os.environ.get("IFLYTEK_SECRET_KEY", "")  # a.k.a APISecret
+IFLYTEK_LFASR_HOST = os.environ.get("IFLYTEK_LFASR_HOST", "https://raasr.xfyun.cn/v2/api")
+IFLYTEK_LFASR_MODE = os.environ.get("IFLYTEK_LFASR_MODE", "")  # e.g. "office"
+# Office/enterprise variant credentials (aka APIKey/APISecret)
+IFLYTEK_ACCESS_KEY_ID = os.environ.get("IFLYTEK_ACCESS_KEY_ID", "")
+IFLYTEK_ACCESS_KEY_SECRET = os.environ.get("IFLYTEK_ACCESS_KEY_SECRET", "")
+
+# =========================
 # TTS (DashScope CosyVoice)
 # =========================
 DASHSCOPE_API_KEY = os.environ.get("DASHSCOPE_API_KEY", "")

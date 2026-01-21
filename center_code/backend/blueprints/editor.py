@@ -7,6 +7,9 @@ import threading
 import time
 import datetime
 import logging
+import json
+import shutil
+import uuid
 from typing import Optional
 
 from flask import Blueprint, request, send_from_directory
@@ -38,9 +41,256 @@ OUTPUT_VIDEO_DIR = os.path.join(BASE_DIR, 'uploads', 'videos')
 if not os.path.exists(OUTPUT_VIDEO_DIR):
     os.makedirs(OUTPUT_VIDEO_DIR)
 
+# 片段缓存目录（用于图片转视频片段等）
+SEGMENTS_DIR = os.path.join(OUTPUT_VIDEO_DIR, 'segments')
+os.makedirs(SEGMENTS_DIR, exist_ok=True)
+
 # 异步任务管理
 _TASK_THREADS = {}
 _TASK_LOCK = threading.Lock()
+
+
+def _probe_duration_seconds(path: str) -> float:
+    try:
+        import ffmpeg  # type: ignore
+
+        probe = ffmpeg.probe(path)
+        fmt = probe.get("format") or {}
+        return float(fmt.get("duration") or 0) or 0.0
+    except Exception:
+        return 0.0
+
+
+def _resolve_ffmpeg_exe() -> str:
+    try:
+        from config import FFMPEG_PATH as config_ffmpeg_path
+
+        ff = os.environ.get("FFMPEG_PATH") or config_ffmpeg_path
+    except Exception:
+        ff = os.environ.get("FFMPEG_PATH")
+
+    ff = (ff or "").strip()
+    if ff and os.path.exists(ff):
+        return os.path.abspath(ff)
+
+    which = shutil.which("ffmpeg")
+    if which:
+        return which
+
+    common_paths = [
+        r"D:\\ffmpeg\\bin\\ffmpeg.exe",
+        r"C:\\ffmpeg\\bin\\ffmpeg.exe",
+        r"C:\\Program Files\\ffmpeg\\bin\\ffmpeg.exe",
+        r"C:\\Program Files (x86)\\ffmpeg\\bin\\ffmpeg.exe",
+    ]
+    for p in common_paths:
+        if os.path.exists(p):
+            return p
+
+    raise RuntimeError("未找到 FFmpeg，可在系统 PATH 安装或设置 FFMPEG_PATH")
+
+
+def _make_image_segment(
+    *,
+    image_path: str,
+    duration: float,
+    out_path: str,
+    width: int = 1080,
+    height: int = 1920,
+    fps: int = 30,
+) -> None:
+    import subprocess
+
+    ffmpeg_exe = _resolve_ffmpeg_exe()
+    d = float(duration or 0)
+    if d <= 0:
+        raise RuntimeError("图片片段 duration 必须 > 0")
+
+    vf = f"scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,fps={fps},format=yuv420p"
+    cmd = [
+        ffmpeg_exe,
+        "-y",
+        "-loop",
+        "1",
+        "-t",
+        f"{d:.3f}",
+        "-i",
+        image_path,
+        "-vf",
+        vf,
+        "-an",
+        "-c:v",
+        "libx264",
+        "-pix_fmt",
+        "yuv420p",
+        out_path,
+    ]
+    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def _coerce_clip_type(v) -> str:
+    t = str(v or "video").lower().strip()
+    return t
+
+
+def _coerce_image_duration_seconds(value) -> float:
+    try:
+        return float(value)
+    except Exception:
+        raise ValueError("image.duration 必须是数字（秒）")
+
+
+def _validate_image_duration_seconds(duration: float) -> float:
+    # 前端建议限制 0.5–30，后端强校验兜底
+    import math
+
+    if not math.isfinite(duration):
+        raise ValueError("image.duration must be a finite number")
+    if duration < 0.5 or duration > 30:
+        raise ValueError("image.duration 超出范围（0.5–30 秒）")
+    return float(duration)
+
+
+def _build_segments_from_request(data: dict) -> tuple[list, list, list, list]:
+    """
+    Returns: (segment_paths, legacy_video_ids, normalized_clips, temp_files)
+    """
+    clips = data.get("clips")
+    video_ids = data.get("video_ids") if clips is None else None
+
+    normalized: list[dict] = []
+    if clips is not None:
+        if not isinstance(clips, list) or not clips:
+            raise ValueError("clips 不能为空")
+        for i, c in enumerate(clips):
+            if not isinstance(c, dict):
+                raise ValueError(f"clips[{i}] 必须是对象")
+            clip_type = _coerce_clip_type(c.get("type") or "video")
+            if clip_type not in ("video", "image"):
+                raise ValueError(f"Unsupported clip.type: {clip_type}")
+            material_id = c.get("materialId")
+            if material_id is None:
+                raise ValueError(f"clips[{i}].materialId 不能为空")
+            try:
+                material_id = int(material_id)
+            except Exception:
+                raise ValueError(f"clips[{i}].materialId 必须是整数")
+
+            item = {"type": clip_type, "materialId": material_id}
+            if clip_type == "image":
+                if "duration" not in c:
+                    raise ValueError(f"clips[{i}].duration is required")
+                try:
+                    item["duration"] = _validate_image_duration_seconds(_coerce_image_duration_seconds(c.get("duration")))
+                except Exception as e:
+                    raise ValueError(f"clips[{i}].duration invalid: {e}")
+                if item["duration"] <= 0:
+                    raise ValueError(f"clips[{i}].duration 必须 > 0")
+            normalized.append(item)
+    else:
+        if not isinstance(video_ids, list) or not video_ids:
+            raise ValueError("video_ids 不能为空")
+        for i, vid in enumerate(video_ids):
+            try:
+                vid = int(vid)
+            except Exception:
+                raise ValueError(f"video_ids[{i}] 必须是整数")
+            normalized.append({"type": "video", "materialId": vid})
+
+    segment_paths: list[str] = []
+    temp_files: list[str] = []
+    legacy_video_ids: list[int] = []
+
+    with get_db() as db:
+        for c in normalized:
+            mat = db.query(Material).filter(Material.id == c["materialId"]).first()
+            if not mat:
+                raise ValueError(f"素材ID {c['materialId']} 不存在")
+
+            clip_type = c["type"]
+            if clip_type == "video":
+                if mat.type != "video":
+                    raise ValueError(f"素材ID {c['materialId']} 类型错误，期望 video，实际 {mat.type}")
+                abs_path = get_abs_path(mat.path)
+                if not os.path.exists(abs_path):
+                    raise ValueError(f"视频文件不存在：{mat.path}")
+                segment_paths.append(abs_path)
+                legacy_video_ids.append(int(c["materialId"]))
+            elif clip_type == "image":
+                if mat.type != "image":
+                    raise ValueError(f"素材ID {c['materialId']} 类型错误，期望 image，实际 {mat.type}")
+                abs_path = get_abs_path(mat.path)
+                if not os.path.exists(abs_path):
+                    raise ValueError(f"图片文件不存在：{mat.path}")
+                out_path = os.path.join(SEGMENTS_DIR, f"img_{uuid.uuid4().hex}.mp4")
+                _make_image_segment(image_path=abs_path, duration=float(c["duration"]), out_path=out_path)
+                segment_paths.append(out_path)
+                temp_files.append(out_path)
+            else:
+                raise ValueError(f"不支持的 clip.type: {clip_type}")
+
+    return segment_paths, legacy_video_ids, normalized, temp_files
+
+
+def _repeat_last_image_segment_to_cover_voice(
+    *,
+    segment_paths: list[str],
+    normalized_clips: list[dict],
+    voice_path: Optional[str],
+    speed: float,
+) -> list[str]:
+    """
+    If voice exists and total duration is still short:
+    - If clips contains image: repeat image segments in order (alternating) until long enough
+    - Else: keep original (VideoEditor will loop videos as before)
+    """
+    if not voice_path or not os.path.exists(voice_path):
+        return segment_paths
+
+    voice_duration = _probe_duration_seconds(voice_path)
+    if voice_duration <= 0:
+        return segment_paths
+
+    image_segments: list[str] = []
+    for idx, c in enumerate(normalized_clips or []):
+        if c.get("type") == "image" and idx < len(segment_paths):
+            image_segments.append(segment_paths[idx])
+
+    if not image_segments:
+        return segment_paths
+
+    try:
+        speed_f = float(speed)
+    except Exception:
+        speed_f = 1.0
+    if speed_f <= 0:
+        speed_f = 1.0
+
+    # Compare pre-speed durations to avoid drift: output_duration ~= total_pre_speed / speed_f
+    total_pre_speed = 0.0
+    for p in segment_paths:
+        total_pre_speed += _probe_duration_seconds(p)
+
+    need_pre_speed = voice_duration * speed_f
+    if total_pre_speed + 1e-3 >= need_pre_speed:
+        return segment_paths
+
+    # Cycle through image segments in order until the total duration covers the voice
+    out = list(segment_paths)
+    guard = 0
+    while total_pre_speed + 1e-3 < need_pre_speed:
+        seg = image_segments[guard % len(image_segments)]
+        d = _probe_duration_seconds(seg)
+        if d <= 0:
+            # If we can't probe, avoid infinite loop
+            break
+        out.append(seg)
+        total_pre_speed += d
+        guard += 1
+        if guard > 2000:
+            break
+
+    return out
 
 
 def _run_edit_task(
@@ -53,6 +303,7 @@ def _run_edit_task(
     bgm_volume: float = 0.25,
     voice_volume: float = 1.0,
     output_name: Optional[str] = None,
+    temp_files: Optional[list] = None,
 ):
     """在后台线程中执行剪辑任务"""
     try:
@@ -189,6 +440,15 @@ def _run_edit_task(
         except Exception as db_error:
             logger.exception(f"Failed to update task {task_id} status: {db_error}")
     finally:
+        try:
+            for p in (temp_files or []):
+                try:
+                    if p and os.path.isfile(p):
+                        os.remove(p)
+                except Exception:
+                    pass
+        except Exception:
+            pass
         with _TASK_LOCK:
             _TASK_THREADS.pop(task_id, None)
 
@@ -226,15 +486,17 @@ def edit_video():
     """
     try:
         data = request.get_json() or {}
+        clips = data.get("clips")
         video_ids = data.get("video_ids", [])
         voice_id = data.get("voice_id")
         bgm_id = data.get("bgm_id")
         speed = data.get("speed", 1.0)
         subtitle_path = (data.get("subtitle_path") or "").strip() or None
 
-        # 参数校验
-        if not video_ids or not isinstance(video_ids, list) or len(video_ids) == 0:
-            return response_error("视频ID列表不能为空", 400)
+        # 参数校验：clips 优先
+        if clips is None:
+            if not video_ids or not isinstance(video_ids, list) or len(video_ids) == 0:
+                return response_error("视频ID列表不能为空", 400)
         
         try:
             speed = float(speed)
@@ -245,20 +507,21 @@ def edit_video():
             return response_error("播放速度超出范围（0.5~2.0）", 400)
 
         # 查询视频素材的绝对路径，并收集素材名称用于生成文件名
-        video_paths = []
+        try:
+            segment_paths, _legacy_video_ids, normalized_clips, temp_files = _build_segments_from_request(data)
+        except Exception as ex:
+            return response_error(str(ex), 400)
+
         video_names = []
         voice_name = None
         bgm_name = None
         
         with get_db() as db:
-            for vid in video_ids:
-                mat = db.query(Material).filter(Material.id == vid).first()
-                if not mat or mat.type != "video":
-                    return response_error(f"视频素材ID {vid} 不存在或类型错误", 400)
-                abs_path = get_abs_path(mat.path)
-                if not os.path.exists(abs_path):
-                    return response_error(f"视频文件不存在：{mat.path}", 400)
-                video_paths.append(abs_path)
+            for c in normalized_clips:
+                mid = int(c["materialId"])
+                mat = db.query(Material).filter(Material.id == mid).first()
+                if not mat:
+                    continue
                 video_name = os.path.splitext(mat.name or os.path.basename(mat.path))[0]
                 video_names.append(video_name)
 
@@ -336,7 +599,7 @@ def edit_video():
                 output_name = None
 
             # 创建任务记录
-            video_ids_str = ",".join(map(str, video_ids))
+            video_ids_str = json.dumps({"clips": normalized_clips}, ensure_ascii=False) if clips is not None else ",".join(map(str, video_ids))
             task = VideoEditTask(
                 video_ids=video_ids_str,
                 voice_id=voice_id,
@@ -354,7 +617,13 @@ def edit_video():
         try:
             # 调用剪辑逻辑（使用默认音量：bgm_volume=0.25, voice_volume=1.0）
             # 注意：同步接口暂不支持自定义音量，使用默认值
-            output_path = video_editor.edit(video_paths, voice_path, bgm_path, speed, abs_sub_path, 0.25, 1.0, output_name)
+            segment_paths = _repeat_last_image_segment_to_cover_voice(
+                segment_paths=segment_paths,
+                normalized_clips=normalized_clips,
+                voice_path=voice_path,
+                speed=speed,
+            )
+            output_path = video_editor.edit(segment_paths, voice_path, bgm_path, speed, abs_sub_path, 0.25, 1.0, output_name)
 
             with get_db() as db:
                 task = db.query(VideoEditTask).filter(VideoEditTask.id == task_id).first()
@@ -479,16 +748,28 @@ def edit_video_async():
     """
     try:
         data = request.get_json() or {}
+        clips = data.get("clips")
         video_ids = data.get("video_ids", [])
         voice_id = data.get("voice_id")
         bgm_id = data.get("bgm_id")
         speed = data.get("speed", 1.0)
         subtitle_path = (data.get("subtitle_path") or "").strip() or None
-        bgm_volume = float(data.get("bgm_volume", 0.25))  # 默认BGM音量25%
-        voice_volume = float(data.get("voice_volume", 1.0))  # 默认配音音量100%
+        try:
+            bgm_volume = float(data.get("bgm_volume", 0.25))
+        except Exception:
+            bgm_volume = 0.25
+        try:
+            voice_volume = float(data.get("voice_volume", 1.0))
+        except Exception:
+            voice_volume = 1.0
 
-        if not video_ids or not isinstance(video_ids, list) or len(video_ids) == 0:
-            return response_error("视频ID列表不能为空", 400)
+        # Clamp volumes to a safe range
+        bgm_volume = max(0.0, min(1.0, bgm_volume))
+        voice_volume = max(0.0, min(1.0, voice_volume))
+
+        if clips is None:
+            if not video_ids or not isinstance(video_ids, list) or len(video_ids) == 0:
+                return response_error("视频ID列表不能为空", 400)
         
         try:
             speed = float(speed)
@@ -499,6 +780,121 @@ def edit_video_async():
             return response_error("播放速度超出范围（0.5~2.0）", 400)
 
         # 查询视频素材的绝对路径，并收集素材名称用于生成文件名
+        # 新协议：clips 优先（支持 video/image 混排）
+        if clips is not None:
+            try:
+                segment_paths, legacy_video_ids, normalized_clips, temp_files = _build_segments_from_request(data)
+            except Exception as ex:
+                return response_error(str(ex), 400)
+
+            video_names = []
+            voice_name = None
+            bgm_name = None
+
+            with get_db() as db:
+                for c in normalized_clips:
+                    mid = int(c["materialId"])
+                    mat = db.query(Material).filter(Material.id == mid).first()
+                    if not mat:
+                        continue
+                    clip_name = os.path.splitext(mat.name or os.path.basename(mat.path))[0]
+                    video_names.append(clip_name)
+
+                bgm_path = None
+                voice_path = None
+
+                if voice_id is not None:
+                    voice_mat = db.query(Material).filter(Material.id == voice_id).first()
+                    if not voice_mat or voice_mat.type != "audio":
+                        return response_error(f"配音素材ID {voice_id} 不存在或类型错误", 400)
+                    voice_path = get_abs_path(voice_mat.path)
+                    if not os.path.exists(voice_path):
+                        return response_error(f"配音文件不存在：{voice_mat.path}", 400)
+                    voice_name = os.path.splitext(voice_mat.name or os.path.basename(voice_mat.path))[0]
+
+                if bgm_id is not None:
+                    bgm_mat = db.query(Material).filter(Material.id == bgm_id).first()
+                    if not bgm_mat or bgm_mat.type != "audio":
+                        return response_error(f"BGM素材ID {bgm_id} 不存在或类型错误", 400)
+                    bgm_path = get_abs_path(bgm_mat.path)
+                    if not os.path.exists(bgm_path):
+                        return response_error(f"BGM文件不存在：{bgm_mat.path}", 400)
+                    bgm_name = os.path.splitext(bgm_mat.name or os.path.basename(bgm_mat.path))[0]
+
+                abs_sub_path = None
+                if subtitle_path:
+                    if subtitle_path.startswith('/'):
+                        subtitle_path = subtitle_path.lstrip('/')
+                    abs_sub_path = get_abs_path(subtitle_path)
+                    if not os.path.isfile(abs_sub_path):
+                        return response_error(f"字幕文件不存在：{subtitle_path}", 400)
+
+                import re
+                import datetime
+
+                def sanitize_filename(s):
+                    if not s:
+                        return ""
+                    s = re.sub(r'[<>:\"/\\\\|?*]', '', s)
+                    s = re.sub(r'\\s+', '_', s)
+                    s = s.strip('._')
+                    return s[:30]
+
+                name_parts = []
+                if video_names:
+                    clips_name = "_".join([sanitize_filename(name) for name in video_names[:3]])
+                    if len(video_names) > 3:
+                        clips_name += f"_等{len(video_names)}个"
+                    if clips_name:
+                        name_parts.append(clips_name)
+
+                if voice_name:
+                    vc = sanitize_filename(voice_name)
+                    if vc:
+                        name_parts.append(vc)
+
+                if bgm_name:
+                    bc = sanitize_filename(bgm_name)
+                    if bc:
+                        name_parts.append(bc)
+
+                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                output_name = "_".join(name_parts) + "_" + timestamp + ".mp4" if name_parts else None
+
+                video_ids_str = json.dumps({"clips": normalized_clips}, ensure_ascii=False)
+                task = VideoEditTask(
+                    video_ids=video_ids_str,
+                    voice_id=voice_id,
+                    bgm_id=bgm_id,
+                    speed=speed,
+                    subtitle_path=subtitle_path,
+                    status="pending",
+                    progress=0,
+                    error_message=None,
+                )
+                db.add(task)
+                db.flush()
+                task_id = task.id
+                db.commit()
+
+            segment_paths = _repeat_last_image_segment_to_cover_voice(
+                segment_paths=segment_paths,
+                normalized_clips=normalized_clips,
+                voice_path=voice_path,
+                speed=speed,
+            )
+
+            t = threading.Thread(
+                target=_run_edit_task,
+                args=(task_id, segment_paths, voice_path, bgm_path, speed, abs_sub_path, bgm_volume, voice_volume, output_name, temp_files),
+                daemon=True,
+            )
+            with _TASK_LOCK:
+                _TASK_THREADS[task_id] = t
+            t.start()
+
+            return response_success({"task_id": task_id}, "任务已创建")
+
         video_paths = []
         video_names = []  # 用于生成文件名
         voice_name = None

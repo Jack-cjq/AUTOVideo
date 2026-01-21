@@ -54,6 +54,53 @@ class VideoEditor:
             import ffmpeg
         except ImportError:
             raise RuntimeError("未安装 ffmpeg-python，请先 pip install ffmpeg-python")
+
+        def _probe_video_dimensions(path: str):
+            try:
+                info = ffmpeg.probe(path)
+                streams = info.get("streams") or []
+                for s in streams:
+                    if (s.get("codec_type") or "").lower() == "video":
+                        w = s.get("width")
+                        h = s.get("height")
+                        return (int(w) if w else None, int(h) if h else None)
+            except Exception:
+                pass
+            return (None, None)
+
+        def _subtitle_style_for_min_dim(min_dim):
+            # Scale subtitle size by the smaller video dimension.
+            # Using height makes portrait videos (e.g. 1080x1920) look oversized.
+            # For min_dim=1080 => ~27, min_dim=720 => ~18.
+            try:
+                d = int(min_dim or 0)
+            except Exception:
+                d = 0
+
+            # Halve the current subtitle size baseline.
+            if d <= 0:
+                font_size = 13
+            else:
+                font_size = round(d * 0.0125)
+                font_size = max(12, min(28, font_size))
+
+            outline = max(1, min(4, round(font_size / 18)))
+            shadow = max(1, min(4, round(font_size / 24)))
+            # TV-like: bottom-center, with a reasonable bottom margin.
+            margin_v = 40
+            if d > 0:
+                try:
+                    margin_v = max(20, min(80, round(d * 0.05)))
+                except Exception:
+                    margin_v = 40
+            return (
+                "FontName=Microsoft YaHei"
+                f",FontSize={font_size}"
+                f",Outline={outline}"
+                f",Shadow={shadow}"
+                ",Alignment=2"
+                f",MarginV={margin_v}"
+            )
         
         # 检查 FFmpeg 是否可用
         try:
@@ -178,6 +225,22 @@ class VideoEditor:
             except Exception as dur_error:
                 print(f"[VideoEditor] 警告：获取视频时长失败：{dur_error}")
 
+            # Subtitle font scaling: probe the first segment's dimensions
+            first_w, first_h = (None, None)
+            if video_paths:
+                first_w, first_h = _probe_video_dimensions(video_paths[0])
+            min_dim = None
+            if first_w and first_h:
+                try:
+                    min_dim = min(int(first_w), int(first_h))
+                except Exception:
+                    min_dim = None
+            elif first_w:
+                min_dim = first_w
+            elif first_h:
+                min_dim = first_h
+            sub_style = _subtitle_style_for_min_dim(min_dim)
+
             # 视频滤镜链（用 -vf，避免 filter_complex 下 Windows 字幕路径转义坑）
             vf_parts: List[str] = []
 
@@ -224,7 +287,7 @@ class VideoEditor:
                     "subtitles="
                     + f"filename='{sub_file}'"
                     + ":charenc=UTF-8"
-                    + ":force_style='FontName=Microsoft YaHei,FontSize=28,Outline=2,Shadow=1'"
+                    + f":force_style='{sub_style}'"
                 )
 
             vf = ",".join(vf_parts) if vf_parts else None
@@ -288,7 +351,7 @@ class VideoEditor:
                     sub_file_raw = abs_subtitle_path.replace("\\", "/")
                     print(f"[VideoEditor] 通过复杂滤镜图添加字幕，路径：{sub_file_raw}")
                     v_stream = v_stream.filter("subtitles", filename=sub_file_raw, charenc="UTF-8", 
-                                               force_style="FontName=Microsoft YaHei,FontSize=28,Outline=2,Shadow=1")
+                                               force_style=sub_style)
                     print(f"[VideoEditor] 字幕滤镜已添加")
                 
                 # 清除 vf，因为已经通过 filter 方法添加了所有滤镜

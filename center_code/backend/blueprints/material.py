@@ -22,13 +22,15 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 UPLOAD_ROOT = os.path.join(BASE_DIR, 'uploads')
 MATERIAL_VIDEO_DIR = os.path.join(UPLOAD_ROOT, 'materials', 'videos')
 MATERIAL_AUDIO_DIR = os.path.join(UPLOAD_ROOT, 'materials', 'audios')
+MATERIAL_IMAGE_DIR = os.path.join(UPLOAD_ROOT, 'materials', 'images')
 
 # 允许的文件扩展名
 ALLOWED_VIDEO_EXT = ('.mp4', '.avi', '.mov')
 ALLOWED_AUDIO_EXT = ('.mp3', '.wav', '.flac')
+ALLOWED_IMAGE_EXT = ('.jpg', '.jpeg', '.png', '.gif', '.webp')
 
 # 自动创建目录
-for dir_path in [UPLOAD_ROOT, MATERIAL_VIDEO_DIR, MATERIAL_AUDIO_DIR]:
+for dir_path in [UPLOAD_ROOT, MATERIAL_VIDEO_DIR, MATERIAL_AUDIO_DIR, MATERIAL_IMAGE_DIR]:
     if not os.path.exists(dir_path):
         os.makedirs(dir_path)
 
@@ -40,6 +42,8 @@ def allowed_file(filename, file_type='video'):
         return ext in ALLOWED_VIDEO_EXT
     elif file_type == 'audio':
         return ext in ALLOWED_AUDIO_EXT
+    elif file_type == 'image':
+        return ext in ALLOWED_IMAGE_EXT
     return False
 
 
@@ -92,9 +96,12 @@ def upload_material():
         elif allowed_file(filename, 'audio'):
             file_type = 'audio'
             save_dir = MATERIAL_AUDIO_DIR
+        elif allowed_file(filename, 'image'):
+            file_type = 'image'
+            save_dir = MATERIAL_IMAGE_DIR
         else:
             return response_error(
-                f'不支持的文件类型（扩展名: {ext}），仅支持视频(mp4/avi/mov)、音频(mp3/wav/flac)', 
+                f'不支持的文件类型（扩展名: {ext}），仅支持视频(mp4/avi/mov)、音频(mp3/wav/flac)、图片(jpg/jpeg/png/gif/webp)',
                 400
             )
         
@@ -266,7 +273,7 @@ def clear_materials():
         delete_errors = []
         
         # 删除文件
-        for dir_path in [MATERIAL_VIDEO_DIR, MATERIAL_AUDIO_DIR]:
+        for dir_path in [MATERIAL_VIDEO_DIR, MATERIAL_AUDIO_DIR, MATERIAL_IMAGE_DIR]:
             try:
                 if not os.path.isdir(dir_path):
                     continue
@@ -322,6 +329,51 @@ def delete_material():
         }
     """
     try:
+        def _task_references_material(task, mid: int) -> bool:
+            try:
+                if getattr(task, 'voice_id', None) == mid:
+                    return True
+                if getattr(task, 'bgm_id', None) == mid:
+                    return True
+            except Exception:
+                pass
+
+            raw = getattr(task, 'video_ids', None) or ''
+            raw = str(raw).strip()
+            if not raw:
+                return False
+
+            if raw.startswith('{') or raw.startswith('['):
+                try:
+                    import json as _json
+                    payload = _json.loads(raw)
+                    clips = payload.get('clips') if isinstance(payload, dict) else payload
+                    if isinstance(clips, list):
+                        for c in clips:
+                            if not isinstance(c, dict):
+                                continue
+                            try:
+                                if int(c.get('materialId')) == mid:
+                                    return True
+                            except Exception:
+                                continue
+                except Exception:
+                    pass
+
+            try:
+                for part in raw.split(','):
+                    part = part.strip()
+                    if not part:
+                        continue
+                    try:
+                        if int(part) == mid:
+                            return True
+                    except Exception:
+                        continue
+            except Exception:
+                pass
+
+            return False
         data = request.get_json(silent=True) or {}
         material_id = data.get('material_id')
         file_path = data.get('file_path', '')
@@ -349,7 +401,8 @@ def delete_material():
                     (VideoEditTask.video_ids.like(f'%{material_id}%')) |
                     (VideoEditTask.voice_id == material_id) |
                     (VideoEditTask.bgm_id == material_id)
-                ).limit(20).all()
+                ).limit(200).all()
+                tasks = [t for t in tasks if _task_references_material(t, material_id)]
                 
                 if tasks:
                     task_ids = [str(t.id) for t in tasks[:10]]
