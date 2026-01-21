@@ -782,7 +782,7 @@
       <div class="modal material-selector-modal" @click.stop>
         <div class="modal-header">
           <div class="modal-title">
-            {{ materialSelector.type === 'video' ? '选择视频素材' : materialSelector.type === 'audio' ? '选择音频素材' : '选择素材' }}
+            {{ materialSelector.type === 'media' ? '选择视频/图片素材' : materialSelector.type === 'audio' ? '选择音频素材' : materialSelector.type === 'video' ? '选择视频素材' : '选择素材' }}
           </div>
           <button class="modal-close" @click="closeMaterialSelector">×</button>
         </div>
@@ -800,7 +800,7 @@
               v-for="material in filteredMaterials" 
               :key="material.id"
               class="material-item"
-              :class="{ selected: materialSelector.selectedId === material.id }"
+              :class="{ selected: Number(materialSelector.selectedId) === Number(material.id) }"
               @click="selectMaterial(material)"
             >
               <div class="material-info">
@@ -820,20 +820,20 @@
                   <span>试听</span>
                 </div>
               </div>
-              <svg v-if="materialSelector.selectedId === material.id" class="check-icon" viewBox="0 0 24 24" fill="none">
+              <svg v-if="Number(materialSelector.selectedId) === Number(material.id)" class="check-icon" viewBox="0 0 24 24" fill="none">
                 <path d="M20 6L9 17l-5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
             </div>
             <div v-if="filteredMaterials.length === 0" class="empty-materials">
               <div class="empty-text">
-                {{ materialSelector.type === 'video' ? '暂无视频素材' : materialSelector.type === 'audio' ? '暂无音频素材' : '暂无素材' }}
+                {{ materialSelector.type === 'media' ? '暂无视频/图片素材' : materialSelector.type === 'audio' ? '暂无音频素材' : materialSelector.type === 'video' ? '暂无视频素材' : '暂无素材' }}
               </div>
               <div class="empty-hint">
                 <span v-if="props.materials && props.materials.length > 0">
-                  当前素材库中有 {{ props.materials.length }} 个素材，但没有{{ materialSelector.type === 'video' ? '视频' : '音频' }}类型的素材
+                  当前素材库中有 {{ props.materials.length }} 个素材，但没有{{ materialSelector.type === 'media' ? '视频/图片' : materialSelector.type === 'video' ? '视频' : '音频' }}类型的素材
                 </span>
                 <span v-else>
-                  请先上传{{ materialSelector.type === 'video' ? '视频' : '音频' }}素材到素材库
+                  请先上传{{ materialSelector.type === 'media' ? '视频/图片' : materialSelector.type === 'video' ? '视频' : '音频' }}素材到素材库
                 </span>
               </div>
             </div>
@@ -886,7 +886,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, nextTick, inject } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick, inject } from 'vue'
 import { ElMessage } from 'element-plus'
 import * as aiApi from '../api/ai'
 import * as editorApi from '../api/editor'
@@ -913,6 +913,7 @@ const aiTab = ref('copy')
 const copyLoading = ref(false)
 const ttsLoading = ref(false)
 const generateLoading = ref(false)
+let pollTimeoutId = null
 
 // 文案表单
 const copyForm = ref({
@@ -948,6 +949,8 @@ const editForm = ref({
   subtitleEnabled: false
 })
 
+const defaultImageDuration = ref(2.0)
+
 // 预览和进度
 const previewUrl = ref('')
 const exportUrl = ref('')
@@ -974,7 +977,7 @@ const modalAudio = ref(null)
 const isClosingModal = ref(false) // 标志：是否正在关闭模态框
 
 // 素材选择器
-const materialSelector = ref({ show: false, search: '', selectedId: null, type: 'video', action: null }) // type: 'video' | 'audio', action: 'voice' | 'bgm' | null
+const materialSelector = ref({ show: false, search: '', selectedId: null, type: 'media', action: null }) // type: 'media' | 'audio', action: 'voice' | 'bgm' | null
 const filteredMaterials = ref([])
 
 // 本地素材列表（当没有从父组件接收时使用）
@@ -1207,12 +1210,17 @@ async function handleAiVideoUpload(e) {
     const response = await materialApi.uploadMaterial(file)
     if (response.code === 200) {
       const materialId = response.data?.material_id
+      const uploadedType = (response.data?.type || '').toLowerCase()
       if (materialId) {
         // 添加到时间线
         const newTimeline = { ...props.timeline }
         if (!newTimeline.clips) newTimeline.clips = []
         const id = `${Date.now()}_${Math.random().toString(16).slice(2)}`
-        newTimeline.clips.push({ id, materialId: Number(materialId) })
+        if (uploadedType === 'image') {
+          newTimeline.clips.push({ id, type: 'image', materialId: Number(materialId), duration: Number(defaultImageDuration.value || 2.0) })
+        } else {
+          newTimeline.clips.push({ id, type: 'video', materialId: Number(materialId) })
+        }
         emit('update-timeline', newTimeline)
         
         // 刷新素材列表
@@ -1241,7 +1249,7 @@ function handleAiGen() {
 
 // 素材选择器相关函数
 async function openMaterialSelector() {
-  materialSelector.value = { show: true, search: '', selectedId: null, type: 'video' }
+  materialSelector.value = { show: true, search: '', selectedId: null, type: 'media' }
   
   // 如果素材列表为空，尝试加载
   if (effectiveMaterials.value.length === 0) {
@@ -1292,7 +1300,7 @@ async function loadMaterials() {
 }
 
 function closeMaterialSelector() {
-  materialSelector.value = { show: false, search: '', selectedId: null, type: 'video', action: null }
+  materialSelector.value = { show: false, search: '', selectedId: null, type: 'media', action: null }
 }
 
 function handleMaterialSelectorMaskClick(e) {
@@ -1303,14 +1311,22 @@ function handleMaterialSelectorMaskClick(e) {
 
 function filterMaterials() {
   const search = materialSelector.value.search.toLowerCase().trim()
-  const selectorType = materialSelector.value.type || 'video'
+  const selectorType = materialSelector.value.type || 'media'
   
   // 使用有效的素材列表（优先使用 props.materials，如果为空则使用本地加载的）
   const allMaterials = effectiveMaterials.value
   
   // 根据选择器类型过滤素材
   let filteredByType = []
-  if (selectorType === 'video') {
+  if (selectorType === 'media') {
+    filteredByType = allMaterials.filter(m => {
+      const type = (m.type || '').toLowerCase()
+      return (
+        type === 'video' || type === 'mp4' || type === 'avi' || type === 'mov' ||
+        type === 'image' || type === 'jpg' || type === 'jpeg' || type === 'png' || type === 'gif' || type === 'webp'
+      )
+    })
+  } else if (selectorType === 'video') {
     // 过滤视频素材，兼容不同的类型值
     filteredByType = allMaterials.filter(m => {
       const type = (m.type || '').toLowerCase()
@@ -1337,27 +1353,35 @@ function filterMaterials() {
 }
 
 function selectMaterial(material) {
-  materialSelector.value.selectedId = material.id
+  materialSelector.value.selectedId = Number(material?.id)
 }
 
 function confirmMaterialSelection() {
   if (!materialSelector.value.selectedId) return
   
   const materialId = materialSelector.value.selectedId
-  const selectorType = materialSelector.value.type || 'video'
+  const selectorType = materialSelector.value.type || 'media'
   const newTimeline = { ...props.timeline }
   
-  if (selectorType === 'video') {
+  if (selectorType === 'media') {
     // 添加到视频剪辑轨道
     if (!newTimeline.clips) newTimeline.clips = []
     const id = `${Date.now()}_${Math.random().toString(16).slice(2)}`
-    newTimeline.clips.push({ id, materialId: Number(materialId) })
+    const mid = Number(materialId)
+    const mat = effectiveMaterials.value.find(x => Number(x.id) === mid)
+    const type = (mat?.type || 'video').toLowerCase()
+    const isImage = ['image', 'jpg', 'jpeg', 'png', 'gif', 'webp'].includes(type)
+    if (isImage) {
+      newTimeline.clips.push({ id, type: 'image', materialId: mid, duration: Number(defaultImageDuration.value || 2.0) })
+    } else {
+      newTimeline.clips.push({ id, type: 'video', materialId: mid })
+    }
     emit('update-timeline', newTimeline)
     ElMessage.success('已添加到剪辑轨道')
     
     // 立即渲染视频列表
     nextTick(() => {
-      renderSelectedVideos()
+      renderSelectedVideos(newTimeline)
     })
   } else if (selectorType === 'audio') {
     // 判断是配音还是BGM（根据当前打开的选择器上下文）
@@ -1587,8 +1611,8 @@ async function handleSubPreview() {
 }
 
 async function handleGenerate() {
-  const clips = props.timeline?.clips || []
-  if (clips.length === 0) {
+  const rawClips = props.timeline?.clips || []
+  if (rawClips.length === 0) {
     alert('请至少选择一个视频素材')
     return
   }
@@ -1597,7 +1621,20 @@ async function handleGenerate() {
   progress.value = { show: true, value: 0, text: '正在创建任务…' }
 
   try {
-    const videoIds = clips.map(c => c.materialId)
+    const clipsPayload = rawClips.map(c => {
+      const type = (c.type || 'video')
+      const materialId = Number(c.materialId)
+      if (type === 'image') {
+        const d = Number(c.duration)
+        if (!Number.isFinite(d) || d < 0.5 || d > 30) {
+          throw new Error('图片时长需在 0.5–30 秒之间')
+        }
+        return { type: 'image', materialId, duration: d }
+      }
+      return { type: 'video', materialId }
+    })
+
+    const legacyVideoIds = clipsPayload.filter(c => c.type === 'video').map(c => c.materialId)
     
     // 获取配音ID：优先从 props.timeline 获取，如果为空则从本地状态获取（处理 props 更新延迟）
     let voiceId = props.timeline?.voice?.materialId || null
@@ -1622,7 +1659,8 @@ async function handleGenerate() {
     const voiceVolume = 1.0
 
     const response = await editorApi.editVideoAsync({
-      video_ids: videoIds,
+      clips: clipsPayload,
+      video_ids: legacyVideoIds,
       voice_id: voiceId,
       bgm_id: bgmId,
       speed,
@@ -1655,6 +1693,11 @@ async function pollTaskStatus(taskId) {
   const maxAttempts = 300 // 最多轮询 5 分钟
   let attempts = 0
 
+  if (pollTimeoutId) {
+    clearTimeout(pollTimeoutId)
+    pollTimeoutId = null
+  }
+
   const poll = async () => {
     if (attempts >= maxAttempts) {
       progress.value = { show: false, value: 0, text: '任务超时' }
@@ -1685,15 +1728,15 @@ async function pollTaskStatus(taskId) {
         } else {
           // 继续轮询
           attempts++
-          setTimeout(poll, 1000)
+          pollTimeoutId = setTimeout(poll, 1000)
         }
       } else {
         attempts++
-        setTimeout(poll, 1000)
+        pollTimeoutId = setTimeout(poll, 1000)
       }
     } catch (error) {
       attempts++
-      setTimeout(poll, 1000)
+      pollTimeoutId = setTimeout(poll, 1000)
     }
   }
 
@@ -1718,24 +1761,93 @@ function renderSelectedVideos(timelineToUse = null) {
 
   // 使用传入的 timeline 或 props.timeline
   const timeline = timelineToUse || props.timeline
-  const clips = timeline?.clips || []
+  const clips = (timeline?.clips || []).map(c => {
+    const type = c.type || 'video'
+    if (type === 'image') {
+      return { ...c, type: 'image', duration: Number(c.duration ?? defaultImageDuration.value ?? 2.0) }
+    }
+    return { ...c, type: 'video' }
+  })
   if (!clips.length) {
     box.innerHTML = '<div class="empty-state"><svg class="empty-icon" viewBox="0 0 24 24" fill="none"><path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><div class="empty-text">尚未选择视频素材</div><div class="empty-hint">去"云素材库 → 视频素材库"点击"添加到剪辑轨道"来选择素材</div></div>'
     return
   }
 
+  const bulk = document.createElement('div')
+  bulk.style.display = 'flex'
+  bulk.style.gap = '8px'
+  bulk.style.alignItems = 'center'
+  bulk.style.marginBottom = '8px'
+  bulk.innerHTML = `
+    <span style="color:#666">图片时长(秒)</span>
+    <input data-bulk="dur" type="number" min="0.5" max="30" step="0.1" value="${Number(defaultImageDuration.value || 2.0)}" style="width:90px" />
+    <button data-bulk="apply" class="btn">批量设置</button>
+  `
+  bulk.querySelector('[data-bulk="dur"]').onchange = (e) => {
+    const v = Number(e.target.value)
+    if (Number.isFinite(v)) defaultImageDuration.value = v
+  }
+  bulk.querySelector('[data-bulk="apply"]').onclick = () => {
+    const v = Number(defaultImageDuration.value || 2.0)
+    if (!Number.isFinite(v) || v < 0.5 || v > 30) {
+      ElMessage.warning('图片时长需在 0.5–30 秒之间')
+      return
+    }
+    const newTimeline = { ...(timelineToUse || props.timeline) }
+    newTimeline.clips = (newTimeline.clips || []).map(c => {
+      if ((c.type || 'video') === 'image') return { ...c, type: 'image', duration: v }
+      return c
+    })
+    emit('update-timeline', newTimeline)
+    nextTick(() => {
+      renderSelectedVideos(newTimeline)
+    })
+  }
+  box.appendChild(bulk)
+
   clips.forEach((clip, idx) => {
     const name = materialNameById(clip.materialId)
     const chip = document.createElement('div')
     chip.className = 'chip'
+    const kind = clip.type === 'image' ? '图片' : '视频'
     chip.innerHTML = `
       <b>${idx + 1}</b>
-      <span>${escapeHtml(name)}</span>
+      <span>${escapeHtml(name)} <em style="color:#999;font-style:normal">(${kind})</em></span>
       <button class="x" title="上移" data-action="up">↑</button>
       <button class="x" title="下移" data-action="down">↓</button>
       <button class="x" title="移除" data-action="remove">×</button>
     `
     
+    if (clip.type === 'image') {
+      const input = document.createElement('input')
+      input.type = 'number'
+      input.min = '0.5'
+      input.max = '30'
+      input.step = '0.1'
+      input.value = String(Number(clip.duration ?? defaultImageDuration.value ?? 2.0))
+      input.style.width = '80px'
+      input.style.marginLeft = '8px'
+      input.title = '图片时长(秒)'
+      input.onchange = () => {
+        const v = Number(input.value)
+        if (!Number.isFinite(v) || v < 0.5 || v > 30) {
+          ElMessage.warning('图片时长需在 0.5–30 秒之间')
+          input.value = String(Number(clip.duration ?? defaultImageDuration.value ?? 2.0))
+          return
+        }
+        const newTimeline = { ...(timelineToUse || props.timeline) }
+        newTimeline.clips = (newTimeline.clips || []).map(x => {
+          if (x.id === clip.id) return { ...x, type: 'image', duration: v }
+          return x
+        })
+        emit('update-timeline', newTimeline)
+        nextTick(() => {
+          renderSelectedVideos(newTimeline)
+        })
+      }
+      chip.appendChild(input)
+    }
+
     chip.querySelector('[data-action="up"]').onclick = () => {
       if (idx <= 0) return
       const newTimeline = { ...(timelineToUse || props.timeline) }
@@ -2248,6 +2360,13 @@ onMounted(async () => {
       renderSelectedVoice()
     }
   })
+})
+
+onBeforeUnmount(() => {
+  if (pollTimeoutId) {
+    clearTimeout(pollTimeoutId)
+    pollTimeoutId = null
+  }
 })
 </script>
 

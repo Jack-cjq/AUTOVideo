@@ -5,17 +5,17 @@
       <div class="topbar">
         <div class="topbar-title">{{ pageTitle }}</div>
         <div class="topbar-actions" v-if="currentView === 'cloud'">
-          <label class="btn" title="上传素材（视频/音频）">
-            <input 
-              ref="uploadInput" 
-              type="file" 
-              style="display:none" 
-              accept=".mp4,.avi,.mov,.mp3,.wav,.flac"
-              @change="handleUpload"
-            />
+          <input 
+            ref="uploadInput" 
+            type="file" 
+            style="display:none" 
+            accept="video/*,audio/*,image/*,.mp4,.avi,.mov,.mp3,.wav,.flac,.jpg,.jpeg,.png,.gif,.webp"
+            @change="handleUpload"
+          />
+          <button class="btn" type="button" title="上传素材（视频/音频/图片）" @click="triggerUpload">
             <span>上传素材</span>
-          </label>
-          <button class="btn danger" @click="handleClearMaterials" title="清空素材库（视频/音频）">
+          </button>
+          <button class="btn danger" @click="handleClearMaterials" title="清空素材库（视频/音频/图片）">
             <span>清空素材库</span>
           </button>
         </div>
@@ -30,6 +30,13 @@
             @click="setCloudTab('videos')"
           >
             视频素材库
+          </div>
+          <div 
+            class="tab" 
+            :class="{ active: cloudTab === 'images' }"
+            @click="setCloudTab('images')"
+          >
+            图片素材库
           </div>
           <div 
             class="tab" 
@@ -107,6 +114,12 @@
             controls
             :src="modal.url"
           ></video>
+          <img
+            v-if="modal.kind === 'image'"
+            class="media media-image"
+            :src="modal.url"
+            alt="preview"
+          />
           <div v-if="modal.kind === 'audio'" class="audio-wrapper">
             <audio 
               ref="modalAudio"
@@ -493,6 +506,11 @@ function renderCloud() {
   let items = []
   if (tab === 'videos') {
     items = materials.value.filter(m => m.type === 'video')
+  } else if (tab === 'images') {
+    items = materials.value.filter(m => {
+      const type = (m.type || '').toLowerCase()
+      return type === 'image'
+    })
   } else if (tab === 'bgm') {
     items = materials.value.filter(m => {
       const type = (m.type || '').toLowerCase()
@@ -516,6 +534,8 @@ function renderCloud() {
       emptyMessage = '暂无音频素材（BGM）<br><small style="color:#8a94a3;margin-top:8px;display:block;">请点击"上传素材"按钮上传音频文件（.mp3, .wav, .flac）</small>'
     } else if (tab === 'videos') {
       emptyMessage = '暂无视频素材<br><small style="color:#8a94a3;margin-top:8px;display:block;">请点击"上传素材"按钮上传视频文件（.mp4, .avi, .mov）</small>'
+    } else if (tab === 'images') {
+      emptyMessage = '暂无图片素材<br><small style="color:#8a94a3;margin-top:8px;display:block;">请点击"上传素材"按钮上传图片文件（.jpg, .jpeg, .png, .gif, .webp）</small>'
     } else if (tab === 'outputs') {
       emptyMessage = '暂无成品视频<br><small style="color:#8a94a3;margin-top:8px;display:block;">完成视频剪辑后，成品会显示在这里</small>'
     }
@@ -540,24 +560,40 @@ function renderCloud() {
 }
 
 function renderMaterialCard(m) {
-  const isVideo = m.type === 'video'
-  const badge = isVideo ? 'video' : 'audio'
-  const badgeLabel = isVideo ? '视频' : '音频'
+  const type = (m.type || '').toLowerCase()
+  const isVideo = type === 'video'
+  const isAudio = type === 'audio'
+  const isImage = type === 'image'
+  const badge = isVideo ? 'video' : isImage ? 'image' : 'audio'
+  const badgeLabel = isVideo ? '视频' : isImage ? '图片' : '音频'
   const filename = (m.path || '').split('/').pop() || '-'
-  const videoUrl = isVideo ? toUploadsUrl(m.path) : ''
+  const mediaUrl = toUploadsUrl(m.path)
+  const showAdd = isVideo || isImage
   
-  // 如果是视频，使用 video 元素显示缩略图；如果是音频，显示音频图标
+  // 如果是视频，使用 video 元素显示缩略图；如果是图片，显示 img；如果是音频，显示占位图标
   let coverHtml = ''
-  if (isVideo && videoUrl) {
+  if (isVideo && mediaUrl) {
     coverHtml = `
       <video 
         class="card-video-thumbnail" 
         preload="metadata" 
         muted
-        data-video-url="${escapeHtml(videoUrl)}"
+        data-video-url="${escapeHtml(mediaUrl)}"
       >
-        <source src="${escapeHtml(videoUrl)}" type="video/mp4">
+        <source src="${escapeHtml(mediaUrl)}" type="video/mp4">
       </video>
+      <div class="card-cover-overlay">
+        <span class="badge ${badge}">${badgeLabel}</span>
+      </div>
+    `
+  } else if (isImage && mediaUrl) {
+    coverHtml = `
+      <img
+        class="card-image-thumbnail"
+        src="${escapeHtml(mediaUrl)}"
+        alt="${escapeHtml(m.name || filename)}"
+        loading="lazy"
+      />
       <div class="card-cover-overlay">
         <span class="badge ${badge}">${badgeLabel}</span>
       </div>
@@ -588,7 +624,9 @@ function renderMaterialCard(m) {
       <div class="card-actions">
         <button class="btn btn-mini" data-action="preview">预览</button>
         <a class="btn btn-mini" data-action="download" target="_blank">下载</a>
-        <button class="btn btn-mini primary" data-action="add">添加到剪辑轨道</button>
+        ${showAdd ? `<button class="btn btn-mini primary" data-action="add">添加到剪辑轨道</button>` : ''}
+        ${isAudio ? `<button class="btn btn-mini primary" data-action="set-voice">设为配音</button>` : ''}
+        ${isAudio ? `<button class="btn btn-mini primary" data-action="set-bgm">设为BGM</button>` : ''}
         <button class="btn btn-mini danger" data-action="delete">删除</button>
       </div>
     </div>
@@ -655,6 +693,8 @@ function bindMaterialCard(card, m) {
   const downloadBtn = card.querySelector('[data-action="download"]')
   const previewBtn = card.querySelector('[data-action="preview"]')
   const addBtn = card.querySelector('[data-action="add"]')
+  const setVoiceBtn = card.querySelector('[data-action="set-voice"]')
+  const setBgmBtn = card.querySelector('[data-action="set-bgm"]')
   const deleteBtn = card.querySelector('[data-action="delete"]')
   const videoThumbnail = card.querySelector('.card-video-thumbnail')
 
@@ -662,7 +702,9 @@ function bindMaterialCard(card, m) {
   
   if (previewBtn) {
     previewBtn.onclick = () => {
-      openModal(m.name || '预览', m.type === 'audio' ? 'audio' : 'video', url)
+      const t = (m.type || '').toLowerCase()
+      const kind = t === 'audio' ? 'audio' : t === 'image' ? 'image' : 'video'
+      openModal(m.name || '预览', kind, url)
     }
   }
   
@@ -714,10 +756,24 @@ function bindMaterialCard(card, m) {
       if (m.type === 'video') {
         addVideoClip(m.id)
         showToast('已添加到剪辑轨道')
-      } else {
-        setBgm(m.id)
-        showToast('已选择 BGM')
+      } else if (m.type === 'image') {
+        addImageClip(m.id)
+        showToast('已添加到剪辑轨道')
       }
+    }
+  }
+
+  if (setVoiceBtn) {
+    setVoiceBtn.onclick = () => {
+      setVoice(m.id)
+      showToast('已设置为配音')
+    }
+  }
+
+  if (setBgmBtn) {
+    setBgmBtn.onclick = () => {
+      setBgm(m.id)
+      showToast('已选择 BGM')
     }
   }
 
@@ -763,6 +819,7 @@ function bindMaterialCard(card, m) {
   // 加载元数据
   if (m.type === 'video') loadVideoMeta(m, card)
   if (m.type === 'audio') loadAudioMeta(m, card)
+  if (m.type === 'image') loadImageMeta(m, card)
 }
 
 function bindOutputCard(card, o) {
@@ -779,7 +836,11 @@ function bindOutputCard(card, o) {
 
   if (previewBtn) {
     previewBtn.onclick = () => {
-      openModal(o.video_name || o.filename || '预览', 'video', fullVideoUrl || o.preview_url)
+      if (!fullVideoUrl) {
+        showToast('缺少预览链接', 'error')
+        return
+      }
+      openModal(o.video_name || o.filename || '预览', 'video', fullVideoUrl)
     }
   }
 
@@ -861,7 +922,17 @@ function bindOutputCard(card, o) {
 
   if (shareBtn) {
     shareBtn.onclick = async () => {
-      const url = window.location.origin + (o.preview_url || '')
+      const rawUrl = o.preview_url || o.video_url || ''
+      if (!rawUrl) {
+        showToast('缺少预览链接', 'error')
+        return
+      }
+
+      let url = rawUrl
+      if (!rawUrl.startsWith('http')) {
+        const normalized = rawUrl.startsWith('/') ? rawUrl : toUploadsUrl(rawUrl)
+        url = window.location.origin + normalized
+      }
       try {
         await navigator.clipboard.writeText(url)
         showToast('已复制分享链接到剪贴板')
@@ -902,16 +973,42 @@ function loadAudioMeta(m, card) {
   } catch (e) {}
 }
 
+function loadImageMeta(m, card) {
+  try {
+    const url = toUploadsUrl(m.path)
+    const img = new Image()
+    img.onload = () => {
+      const durationEl = card.querySelector('[data-meta="duration"]')
+      const resolutionEl = card.querySelector('[data-meta="resolution"]')
+      if (durationEl) durationEl.innerText = '-'
+      if (resolutionEl) resolutionEl.innerText = `${img.naturalWidth}x${img.naturalHeight}`
+    }
+    img.src = url
+  } catch (e) {}
+}
+
 // 时间线操作
 function addVideoClip(materialId) {
   if (!timeline.value.clips) timeline.value.clips = []
   const id = `${Date.now()}_${Math.random().toString(16).slice(2)}`
-  timeline.value.clips.push({ id, materialId })
+  timeline.value.clips.push({ id, type: 'video', materialId })
+  saveTimeline()
+}
+
+function addImageClip(materialId, duration = 2.0) {
+  if (!timeline.value.clips) timeline.value.clips = []
+  const id = `${Date.now()}_${Math.random().toString(16).slice(2)}`
+  timeline.value.clips.push({ id, type: 'image', materialId, duration })
   saveTimeline()
 }
 
 function setBgm(materialId) {
   timeline.value.bgm = { materialId }
+  saveTimeline()
+}
+
+function setVoice(materialId) {
+  timeline.value.voice = { materialId }
   saveTimeline()
 }
 
@@ -936,10 +1033,12 @@ async function handleUpload(e) {
   if (!file) return
 
   try {
+    console.log('[VideoLibrary] handleUpload:', { name: file.name, size: file.size, type: file.type })
     const fileName = file.name
     const fileExt = fileName.split('.').pop()?.toLowerCase()
     const isAudio = ['.mp3', '.wav', '.flac'].includes('.' + fileExt)
     const isVideo = ['.mp4', '.avi', '.mov'].includes('.' + fileExt)
+    const isImage = ['.jpg', '.jpeg', '.png', '.gif', '.webp'].includes('.' + fileExt)
     
     showToast('正在上传…')
     const response = await materialApi.uploadMaterial(file)
@@ -951,6 +1050,10 @@ async function handleUpload(e) {
       // 如果是音频文件，自动切换到 BGM 库
       if (uploadedType === 'audio') {
         setCloudTab('bgm')
+      } else if (uploadedType === 'image') {
+        setCloudTab('images')
+      } else if (uploadedType === 'video') {
+        setCloudTab('videos')
       }
       
       await bootstrapData()
@@ -968,10 +1071,16 @@ async function handleUpload(e) {
   }
 }
 
+function triggerUpload() {
+  const input = uploadInput.value
+  if (!input) return
+  input.click()
+}
+
 async function handleClearMaterials() {
   try {
     await ElMessageBox.confirm(
-      '确定清空素材库吗？此操作将删除视频/音频素材文件与数据库记录。',
+      '确定清空素材库吗？此操作将删除视频/音频/图片素材文件与数据库记录。',
       '提示',
       { type: 'warning' }
     )
@@ -1270,6 +1379,14 @@ onMounted(async () => {
   background: #000;
 }
 
+.card-image-thumbnail {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  background: #000;
+}
+
 .card-cover-overlay {
   position: absolute;
   top: 0;
@@ -1328,6 +1445,11 @@ onMounted(async () => {
 .badge.output {
   background: rgba(46, 204, 113, 0.12);
   color: #1e8f4d;
+}
+
+.badge.image {
+  background: rgba(155, 89, 182, 0.12);
+  color: #7d3c98;
 }
 
 .card-body {
@@ -1443,6 +1565,10 @@ onMounted(async () => {
   height: 520px;
   background: #000;
   border-radius: 12px;
+}
+
+.media-image {
+  object-fit: contain;
 }
 
 .audio-wrapper {

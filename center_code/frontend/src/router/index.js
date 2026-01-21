@@ -77,7 +77,9 @@ const routes = [
       {
         path: 'video-editor',
         name: 'VideoEditor',
-        component: () => import('../views/VideoEditorView.vue'),
+        // Use the same page container as VideoLibrary so the editor and cloud library
+        // can share timeline/material state and switch views smoothly.
+        component: () => import('../views/VideoLibrary.vue'),
         meta: { requiresAuth: true, title: 'Video Editor' }
       },
       {
