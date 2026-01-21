@@ -77,14 +77,10 @@
                 <el-tag :type="getStatusType(row.status)">{{ getStatusText(row.status) }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="scheduled_time" label="计划时间" width="180">
+            <el-table-column prop="plan_name" label="发布计划" min-width="150" />
+            <el-table-column prop="publish_time" label="计划发布时间" width="180">
               <template #default="{ row }">
-                {{ formatDateTime(row.scheduled_time) }}
-              </template>
-            </el-table-column>
-            <el-table-column prop="publish_time" label="实际发布时间" width="180">
-              <template #default="{ row }">
-                {{ row.completed_at ? formatDateTime(row.completed_at) : '-' }}
+                {{ formatDateTime(row.publish_time) }}
               </template>
             </el-table-column>
             <el-table-column prop="progress" label="进度" width="120">
@@ -201,13 +197,19 @@ const loadInstantHistory = async () => {
   instantLoading.value = true
   try {
     const params = {
-      page: instantPagination.value.page,
-      size: instantPagination.value.size
+      limit: instantPagination.value.size,
+      offset: (instantPagination.value.page - 1) * instantPagination.value.size
     }
-    const response = await api.post('/publish/history', params)
+    const response = await api.video.tasks(params)
     if (response.code === 200) {
-      instantHistory.value = response.data?.list || []
-      instantPagination.value.total = response.data?.total || 0
+      // 转换数据格式，添加 account_name 和 platform
+      const tasks = response.data?.tasks || response.data || []
+      instantHistory.value = tasks.map(task => ({
+        ...task,
+        account_name: task.account_name || '-',
+        platform: task.platform || '-'
+      }))
+      instantPagination.value.total = response.data?.total || tasks.length
     } else {
       ElMessage.error(response.message || '加载立即发布历史失败')
     }
@@ -224,10 +226,11 @@ const loadPlanHistory = async () => {
   planLoading.value = true
   try {
     const params = {
-      page: planPagination.value.page,
-      size: planPagination.value.size
+      limit: planPagination.value.size,
+      offset: (planPagination.value.page - 1) * planPagination.value.size
     }
-    const response = await publishPlanApi.getPublishPlans(params)
+    // 调用新的API获取发布计划中的视频任务列表
+    const response = await api.get('/publish-plans/videos/history', { params })
     if (response.code === 200) {
       planHistory.value = response.data?.items || []
       planPagination.value.total = response.data?.total || 0
@@ -263,15 +266,12 @@ const handleDeleteTask = async (row) => {
   try {
     if (activeTab.value === 'instant') {
       await api.video.deleteTask(row.id)
-    } else {
-      await publishPlanApi.deletePublishPlan(row.id)
-    }
-    ElMessage.success('删除成功')
-    // 重新加载数据
-    if (activeTab.value === 'instant') {
+      ElMessage.success('删除成功')
       loadInstantHistory()
     } else {
-      loadPlanHistory()
+      // 发布计划历史中删除的是 PlanVideo，需要通过计划ID删除整个计划，或者只删除该视频
+      // 这里暂时提示用户去发布计划页面删除
+      ElMessage.info('请在发布计划页面删除视频')
     }
   } catch (error) {
     console.error('删除失败:', error)

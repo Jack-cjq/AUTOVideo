@@ -565,6 +565,116 @@ def add_video_to_plan(plan_id):
         return response_error(str(e), 500)
 
 
+@publish_plans_bp.route('/videos/history', methods=['GET'])
+@login_required
+def get_plan_videos_history():
+    """
+    获取发布计划中的视频任务历史接口
+    
+    请求方法: GET
+    路径: /api/publish-plans/videos/history
+    认证: 需要登录
+    
+    查询参数:
+        limit (int, 可选): 每页数量，默认 20
+        offset (int, 可选): 偏移量，默认 0
+        plan_id (int, 可选): 筛选指定计划ID
+        status (string, 可选): 状态筛选（pending/processing/published/failed）
+    
+    返回数据:
+        成功 (200):
+        {
+            "code": 200,
+            "message": "success",
+            "data": {
+                "items": [
+                    {
+                        "id": int,
+                        "plan_id": int,
+                        "plan_name": "string",
+                        "video_title": "string",
+                        "video_url": "string",
+                        "account_id": int,
+                        "account_name": "string",
+                        "platform": "string",
+                        "status": "string",
+                        "publish_time": "string",
+                        "created_at": "string"
+                    }
+                ],
+                "total": int,
+                "limit": int,
+                "offset": int
+            }
+        }
+    """
+    try:
+        limit = request.args.get('limit', type=int, default=20)
+        offset = request.args.get('offset', type=int, default=0)
+        plan_id_filter = request.args.get('plan_id', type=int)
+        status_filter = request.args.get('status')
+        
+        with get_db() as db:
+            from models import Account
+            
+            # 查询 PlanVideo，关联 PublishPlan 和 VideoTask
+            query = db.query(PlanVideo, PublishPlan).join(
+                PublishPlan, PlanVideo.plan_id == PublishPlan.id
+            )
+            
+            if plan_id_filter:
+                query = query.filter(PlanVideo.plan_id == plan_id_filter)
+            
+            if status_filter:
+                query = query.filter(PlanVideo.status == status_filter)
+            
+            # 获取总数
+            total = query.count()
+            
+            # 分页查询
+            results = query.order_by(PlanVideo.created_at.desc()).limit(limit).offset(offset).all()
+            
+            # 构建返回数据
+            items = []
+            for plan_video, plan in results:
+                # 查找对应的 VideoTask 和 Account
+                video_task = db.query(VideoTask).filter(
+                    VideoTask.video_url == plan_video.video_url,
+                    VideoTask.account_id.isnot(None)
+                ).first()
+                
+                account_name = None
+                account_id = None
+                if video_task:
+                    account = db.query(Account).filter(Account.id == video_task.account_id).first()
+                    if account:
+                        account_name = account.account_name
+                        account_id = account.id
+                
+                items.append({
+                    'id': plan_video.id,
+                    'plan_id': plan.id,
+                    'plan_name': plan.plan_name,
+                    'video_title': plan_video.video_title,
+                    'video_url': plan_video.video_url,
+                    'account_id': account_id,
+                    'account_name': account_name or '-',
+                    'platform': plan.platform,
+                    'status': plan_video.status,
+                    'publish_time': plan.publish_time.isoformat() if plan.publish_time else None,
+                    'created_at': plan_video.created_at.isoformat() if plan_video.created_at else None
+                })
+            
+            return response_success({
+                'items': items,
+                'total': total,
+                'limit': limit,
+                'offset': offset
+            })
+    except Exception as e:
+        return response_error(str(e), 500)
+
+
 @publish_plans_bp.route('/<int:plan_id>/save-info', methods=['POST'])
 @login_required
 def save_publish_info(plan_id):

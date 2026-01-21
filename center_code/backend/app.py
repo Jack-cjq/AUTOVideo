@@ -107,17 +107,19 @@ if is_production:
         app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 
 # 配置 CORS，允许携带凭证
-# 开发环境允许所有 localhost 和 127.0.0.1 的端口
+# 开发环境允许所有 localhost 和 127.0.0.1 的端口（包括常见的开发端口）
 cors_origins = [
-    'http://localhost:3001', 'http://localhost:3002', 'http://localhost:3003', 'http://localhost:5173',
-    'http://127.0.0.1:3001', 'http://127.0.0.1:3002', 'http://127.0.0.1:3003', 'http://127.0.0.1:5173'
+    'http://localhost:3000', 'http://localhost:3001', 'http://localhost:3002', 'http://localhost:3003', 
+    'http://localhost:5173', 'http://localhost:8080', 'http://localhost:8081', 'http://localhost:8082',
+    'http://127.0.0.1:3000', 'http://127.0.0.1:3001', 'http://127.0.0.1:3002', 'http://127.0.0.1:3003',
+    'http://127.0.0.1:5173', 'http://127.0.0.1:8080', 'http://127.0.0.1:8081', 'http://127.0.0.1:8082'
 ]
 # 如果环境变量设置了允许的源，则使用环境变量
 if os.getenv('CORS_ORIGINS'):
     cors_origins = [origin.strip() for origin in os.getenv('CORS_ORIGINS').split(',') if origin.strip()]
 # 开发环境：如果没有设置 CORS_ORIGINS，允许所有 localhost 和 127.0.0.1 的端口
 elif not is_production:
-    # 开发环境允许所有 localhost 端口
+    # 开发环境允许所有 localhost 端口（使用通配符更灵活）
     cors_origins = ['*']  # 开发环境允许所有来源
 # 生产环境：如果没有设置 CORS_ORIGINS，允许所有来源（通过 Nginx 代理时）
 else:

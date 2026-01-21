@@ -454,7 +454,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Clock, VideoPlay, Promotion, UploadFilled, Warning, Check } from '@element-plus/icons-vue'
 import api from '../api'
@@ -1033,16 +1033,6 @@ const handleSubmit = async () => {
       const taskCount = response.data?.total_tasks || form.value.account_ids.length
       ElMessage.success(`发布任务已创建，共 ${taskCount} 个任务（${form.value.account_ids.length} 个账号）`)
       handleReset()
-      // 自动显示发布历史
-      if (!showHistory.value) {
-        showHistory.value = true
-      }
-      loadPublishHistory().then(() => {
-        // 提交任务后，如果有正在进行的任务，开始轮询
-        if (hasRunningTasks.value) {
-          startPolling()
-        }
-      })
     } else {
       ElMessage.error(response.message || '发布失败')
     }
@@ -1078,68 +1068,8 @@ const handleReset = () => {
   publishInterval.value = 30
 }
 
-// 任务状态轮询
-let pollTimer = null
-const POLL_INTERVAL = 3000 // 3秒轮询一次
-
-// 检查是否有正在进行的任务
-const hasRunningTasks = computed(() => {
-  return publishHistory.value.some(task => 
-    task.status === 'pending' || task.status === 'uploading'
-  )
-})
-
-// 开始轮询任务状态
-const startPolling = () => {
-  // 如果已经有定时器，先清除
-  if (pollTimer) {
-    clearInterval(pollTimer)
-  }
-  
-  // 如果有正在进行的任务且历史记录可见，开始轮询
-  if (hasRunningTasks.value && showHistory.value) {
-    pollTimer = setInterval(() => {
-      if (hasRunningTasks.value && showHistory.value) {
-        loadPublishHistory()
-      } else {
-        // 没有正在进行的任务，停止轮询
-        stopPolling()
-      }
-    }, POLL_INTERVAL)
-    console.log('[轮询] 开始轮询任务状态，间隔:', POLL_INTERVAL, 'ms')
-  }
-}
-
-// 停止轮询
-const stopPolling = () => {
-  if (pollTimer) {
-    clearInterval(pollTimer)
-    pollTimer = null
-    console.log('[轮询] 停止轮询任务状态')
-  }
-}
-
-// 监听任务状态变化，自动开始/停止轮询
-watch([hasRunningTasks, showHistory], ([hasRunning, isVisible]) => {
-  if (hasRunning && isVisible) {
-    startPolling()
-  } else {
-    stopPolling()
-  }
-}, { immediate: true })
-
 onMounted(() => {
   loadAccounts()
-})
-
-onUnmounted(() => {
-  // 组件卸载时清除定时器
-  stopPolling()
-})
-
-onUnmounted(() => {
-  // 组件卸载时清除定时器
-  stopPolling()
 })
 </script>
 

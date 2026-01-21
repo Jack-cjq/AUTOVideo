@@ -52,7 +52,7 @@ def create_account():
         }
     
     说明:
-        - 一个设备只能绑定一个账号
+        - 一个设备可以授权多个账号
         - 账号名称必须唯一
         - 如果设备不存在，返回 404 错误
     """
@@ -71,14 +71,13 @@ def create_account():
             if not device:
                 return response_error('Device not found. Please register device first.', 404)
             
-            # 检查该设备是否已经有账号
-            existing_account = db.query(Account).filter(Account.device_id == device.id).first()
+            # 检查账号名称是否已存在（账号名称必须全局唯一）
+            existing_account = db.query(Account).filter(Account.account_name == account_name).first()
             if existing_account:
-                return response_error('This device already has an account. One device can only have one account.', 400)
-            
-            # 检查账号名称是否已存在
-            if db.query(Account).filter(Account.account_name == account_name).first():
                 return response_error('Account name already exists', 400)
+            
+            # 检查该设备是否已经有相同平台和账号名称的账号（可选：防止重复授权）
+            # 注意：这里允许同一设备授权多个账号，只要账号名称不同即可
             
             account = Account(
                 device_id=device.id,

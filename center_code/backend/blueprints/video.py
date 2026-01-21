@@ -124,47 +124,57 @@ def get_video_tasks():
     查询参数:
         account_id (int, 可选): 账号ID，筛选指定账号的任务
         status (string, 可选): 状态筛选（pending/uploading/completed/failed）
+        limit (int, 可选): 每页数量，默认不限制
+        offset (int, 可选): 偏移量，默认 0
     
     返回数据:
         成功 (200):
         {
             "code": 200,
             "message": "success",
-            "data": [
-                {
-                    "id": int,
-                    "account_id": int,
-                    "device_id": int,
-                    "video_url": "string",
-                    "video_title": "string",
-                    "video_tags": "string",
-                    "status": "string",
-                    "progress": int,
-                    "error_message": "string",
-                    "created_at": "string",
-                    "started_at": "string",
-                    "completed_at": "string"
-                }
-            ]
+            "data": {
+                "tasks": [
+                    {
+                        "id": int,
+                        "account_id": int,
+                        "device_id": int,
+                        "video_url": "string",
+                        "video_title": "string",
+                        "video_tags": "string",
+                        "status": "string",
+                        "progress": int,
+                        "error_message": "string",
+                        "created_at": "string",
+                        "started_at": "string",
+                        "completed_at": "string"
+                    }
+                ],
+                "total": int
+            }
         }
     
     说明:
         - 结果按创建时间倒序排列
         - 支持按账号和状态筛选
+        - 支持分页查询
     """
     try:
         account_id = request.args.get('account_id', type=int)
         status = request.args.get('status')
+        limit = request.args.get('limit', type=int)
+        offset = request.args.get('offset', type=int, default=0)
         
         # 如果只提供了account_id和status参数，允许设备端调用（不需要登录）
         # 否则需要登录认证（管理端调用）
         if account_id is None and status is None:
             # 管理端调用，需要登录
-            if not session.get('logged_in'):
+            if not has_valid_token():
                 return response_error('请先登录', 401)
         # 设备端调用（提供了account_id和status），不需要登录
         
         with get_db() as db:
+            from models import PlanVideo
+            
             query = db.query(VideoTask)
             
             if account_id:
@@ -173,10 +183,34 @@ def get_video_tasks():
             if status:
                 query = query.filter(VideoTask.status == status)
             
-            tasks = query.order_by(VideoTask.created_at.desc()).all()
+            # 排除发布计划中的任务：只显示立即发布的任务（video_url 不在 PlanVideo 中）
+            # 获取所有发布计划中的 video_url，排除这些任务
+            plan_video_urls = db.query(PlanVideo.video_url).distinct()
+            query = query.filter(~VideoTask.video_url.in_(plan_video_urls))
             
+            # 获取总数（在应用排序和分页之前）
+            total = query.count()
+            
+            # 先应用排序，再应用分页（SQLAlchemy 要求 order_by 在 limit/offset 之前）
+            query = query.order_by(VideoTask.created_at.desc())
+            
+            # 应用分页
+            if limit:
+                query = query.limit(limit).offset(offset)
+            
+            tasks = query.all()
+            
+            # 关联账号信息
             tasks_list = []
             for task in tasks:
+                account_name = None
+                platform = None
+                if task.account_id:
+                    account = db.query(Account).filter(Account.id == task.account_id).first()
+                    if account:
+                        account_name = account.account_name
+                        platform = account.platform
+                
                 tasks_list.append({
                     'id': task.id,
                     'account_id': task.account_id,
@@ -187,12 +221,17 @@ def get_video_tasks():
                     'status': task.status,
                     'progress': task.progress,
                     'error_message': task.error_message,
+                    'account_name': account_name,
+                    'platform': platform,
                     'created_at': task.created_at.isoformat() if task.created_at else None,
                     'started_at': task.started_at.isoformat() if task.started_at else None,
                     'completed_at': task.completed_at.isoformat() if task.completed_at else None
                 })
         
-        return response_success(tasks_list)
+        return response_success({
+            'tasks': tasks_list,
+            'total': total
+        })
     except Exception as e:
         return response_error(str(e), 500)
 
