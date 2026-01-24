@@ -36,6 +36,8 @@ editor_bp = Blueprint('editor', __name__, url_prefix='/api')
 # 配置路径
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 OUTPUT_VIDEO_DIR = os.path.join(BASE_DIR, 'uploads', 'videos')
+UPLOADS_DIR = os.path.join(BASE_DIR, 'uploads')
+SUBTITLE_DIR = os.path.join(UPLOADS_DIR, 'subtitles')
 
 # 自动创建目录
 if not os.path.exists(OUTPUT_VIDEO_DIR):
@@ -44,6 +46,43 @@ if not os.path.exists(OUTPUT_VIDEO_DIR):
 # 片段缓存目录（用于图片转视频片段等）
 SEGMENTS_DIR = os.path.join(OUTPUT_VIDEO_DIR, 'segments')
 os.makedirs(SEGMENTS_DIR, exist_ok=True)
+
+# 资源与并发限制（可用环境变量覆盖）
+MAX_CLIPS = int(os.environ.get("MAX_EDIT_CLIPS", "100"))
+MAX_TOTAL_SECONDS = float(os.environ.get("MAX_EDIT_TOTAL_SECONDS", "1800"))
+MAX_CONCURRENT_EDIT_THREADS = int(os.environ.get("MAX_EDIT_THREADS", "2"))
+SEGMENT_DIR_TTL_SECONDS = int(os.environ.get("SEGMENT_DIR_TTL_SECONDS", "86400"))
+
+
+def _ensure_within_dir(path: str, base_dir: str) -> str:
+    path = os.path.normpath(path)
+    base_dir = os.path.normpath(base_dir)
+    try:
+        if os.path.commonpath([os.path.normcase(path), os.path.normcase(base_dir)]) != os.path.normcase(base_dir):
+            raise ValueError("path outside allowed directory")
+    except Exception:
+        raise ValueError("path outside allowed directory")
+    return path
+
+
+def _cleanup_old_segment_dirs():
+    try:
+        now_ts = time.time()
+        if not os.path.isdir(SEGMENTS_DIR):
+            return
+        for name in os.listdir(SEGMENTS_DIR):
+            if not name.startswith("task_"):
+                continue
+            p = os.path.join(SEGMENTS_DIR, name)
+            try:
+                if os.path.isdir(p):
+                    mtime = os.path.getmtime(p)
+                    if now_ts - mtime > SEGMENT_DIR_TTL_SECONDS:
+                        shutil.rmtree(p, ignore_errors=True)
+            except Exception:
+                continue
+    except Exception:
+        pass
 
 # 异步任务管理
 _TASK_THREADS = {}
@@ -106,7 +145,7 @@ def _make_image_segment(
     if d <= 0:
         raise RuntimeError("图片片段 duration 必须 > 0")
 
-    vf = f"scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,fps={fps},format=yuv420p"
+    vf = f"scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,fps={fps},format=yuv420p,setsar=1"
     cmd = [
         ffmpeg_exe,
         "-y",
@@ -151,7 +190,7 @@ def _validate_image_duration_seconds(duration: float) -> float:
     return float(duration)
 
 
-def _build_segments_from_request(data: dict) -> tuple[list, list, list, list]:
+def _build_segments_from_request(data: dict) -> tuple[list, list, list, list, Optional[str]]:
     """
     Returns: (segment_paths, legacy_video_ids, normalized_clips, temp_files)
     """
@@ -162,6 +201,8 @@ def _build_segments_from_request(data: dict) -> tuple[list, list, list, list]:
     if clips is not None:
         if not isinstance(clips, list) or not clips:
             raise ValueError("clips 不能为空")
+        if len(clips) > MAX_CLIPS:
+            raise ValueError(f"clips 数量超出限制（{MAX_CLIPS}）")
         for i, c in enumerate(clips):
             if not isinstance(c, dict):
                 raise ValueError(f"clips[{i}] 必须是对象")
@@ -190,6 +231,8 @@ def _build_segments_from_request(data: dict) -> tuple[list, list, list, list]:
     else:
         if not isinstance(video_ids, list) or not video_ids:
             raise ValueError("video_ids 不能为空")
+        if len(video_ids) > MAX_CLIPS:
+            raise ValueError(f"video_ids 数量超出限制（{MAX_CLIPS}）")
         for i, vid in enumerate(video_ids):
             try:
                 vid = int(vid)
@@ -200,6 +243,8 @@ def _build_segments_from_request(data: dict) -> tuple[list, list, list, list]:
     segment_paths: list[str] = []
     temp_files: list[str] = []
     legacy_video_ids: list[int] = []
+    temp_dir: Optional[str] = None
+    total_seconds = 0.0
 
     with get_db() as db:
         for c in normalized:
@@ -214,6 +259,12 @@ def _build_segments_from_request(data: dict) -> tuple[list, list, list, list]:
                 abs_path = get_abs_path(mat.path)
                 if not os.path.exists(abs_path):
                     raise ValueError(f"视频文件不存在：{mat.path}")
+                duration = float(mat.duration or 0.0) if mat.duration is not None else 0.0
+                if duration <= 0:
+                    duration = _probe_duration_seconds(abs_path)
+                if duration <= 0:
+                    raise ValueError(f"无法确定素材时长：{mat.path}")
+                total_seconds += duration
                 segment_paths.append(abs_path)
                 legacy_video_ids.append(int(c["materialId"]))
             elif clip_type == "image":
@@ -222,14 +273,21 @@ def _build_segments_from_request(data: dict) -> tuple[list, list, list, list]:
                 abs_path = get_abs_path(mat.path)
                 if not os.path.exists(abs_path):
                     raise ValueError(f"图片文件不存在：{mat.path}")
-                out_path = os.path.join(SEGMENTS_DIR, f"img_{uuid.uuid4().hex}.mp4")
+                if temp_dir is None:
+                    temp_dir = os.path.join(SEGMENTS_DIR, f"task_{uuid.uuid4().hex}")
+                    os.makedirs(temp_dir, exist_ok=True)
+                out_path = os.path.join(temp_dir, f"img_{uuid.uuid4().hex}.mp4")
+                total_seconds += float(c.get("duration") or 0.0)
                 _make_image_segment(image_path=abs_path, duration=float(c["duration"]), out_path=out_path)
                 segment_paths.append(out_path)
                 temp_files.append(out_path)
             else:
                 raise ValueError(f"不支持的 clip.type: {clip_type}")
 
-    return segment_paths, legacy_video_ids, normalized, temp_files
+    if total_seconds > MAX_TOTAL_SECONDS:
+        raise ValueError(f"素材总时长超出限制（{MAX_TOTAL_SECONDS} 秒）")
+
+    return segment_paths, legacy_video_ids, normalized, temp_files, temp_dir
 
 
 def _repeat_last_image_segment_to_cover_voice(
@@ -304,6 +362,8 @@ def _run_edit_task(
     voice_volume: float = 1.0,
     output_name: Optional[str] = None,
     temp_files: Optional[list] = None,
+    temp_dir: Optional[str] = None,
+    is_mixed_clips: bool = False,
 ):
     """在后台线程中执行剪辑任务"""
     try:
@@ -335,7 +395,28 @@ def _run_edit_task(
         output_path = None
         edit_error = None
         try:
-            output_path = video_editor.edit(video_paths, voice_path, bgm_path, speed, subtitle_path, bgm_volume, voice_volume, output_name)
+            if is_mixed_clips:
+                output_path = video_editor.edit_mixed_concat_filter(
+                    video_paths,
+                    voice_path,
+                    bgm_path,
+                    speed,
+                    subtitle_path,
+                    bgm_volume,
+                    voice_volume,
+                    output_name,
+                )
+            else:
+                output_path = video_editor.edit(
+                    video_paths,
+                    voice_path,
+                    bgm_path,
+                    speed,
+                    subtitle_path,
+                    bgm_volume,
+                    voice_volume,
+                    output_name,
+                )
         except Exception as edit_ex:
             edit_error = str(edit_ex)
             logger.exception(f"Task {task_id}: Video edit failed with exception")
@@ -447,6 +528,8 @@ def _run_edit_task(
                         os.remove(p)
                 except Exception:
                     pass
+            if temp_dir and os.path.isdir(temp_dir):
+                shutil.rmtree(temp_dir, ignore_errors=True)
         except Exception:
             pass
         with _TASK_LOCK:
@@ -493,6 +576,8 @@ def edit_video():
         speed = data.get("speed", 1.0)
         subtitle_path = (data.get("subtitle_path") or "").strip() or None
 
+        _cleanup_old_segment_dirs()
+
         # 参数校验：clips 优先
         if clips is None:
             if not video_ids or not isinstance(video_ids, list) or len(video_ids) == 0:
@@ -508,7 +593,7 @@ def edit_video():
 
         # 查询视频素材的绝对路径，并收集素材名称用于生成文件名
         try:
-            segment_paths, _legacy_video_ids, normalized_clips, temp_files = _build_segments_from_request(data)
+            segment_paths, _legacy_video_ids, normalized_clips, temp_files, temp_dir = _build_segments_from_request(data)
         except Exception as ex:
             return response_error(str(ex), 400)
 
@@ -557,6 +642,10 @@ def edit_video():
                     # 去掉前导斜杠，转换为相对路径
                     subtitle_path = subtitle_path.lstrip('/')
                 abs_sub_path = get_abs_path(subtitle_path)
+                try:
+                    abs_sub_path = _ensure_within_dir(abs_sub_path, SUBTITLE_DIR)
+                except Exception:
+                    return response_error("字幕路径非法", 400)
                 if not os.path.isfile(abs_sub_path):
                     return response_error(f"字幕文件不存在：{subtitle_path}（绝对路径：{abs_sub_path}）", 400)
 
@@ -709,6 +798,18 @@ def edit_video():
                     task.updated_at = datetime.datetime.now()
                     db.commit()
             return response_error(f"剪辑过程出错：{str(e)}", 500)
+        finally:
+            try:
+                for p in (temp_files or []):
+                    try:
+                        if p and os.path.isfile(p):
+                            os.remove(p)
+                    except Exception:
+                        pass
+                if temp_dir and os.path.isdir(temp_dir):
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+            except Exception:
+                pass
 
     except Exception as e:
         logger.exception("Edit video failed")
@@ -763,6 +864,12 @@ def edit_video_async():
         except Exception:
             voice_volume = 1.0
 
+        _cleanup_old_segment_dirs()
+
+        with _TASK_LOCK:
+            if len(_TASK_THREADS) >= MAX_CONCURRENT_EDIT_THREADS:
+                return response_error("并发剪辑任务过多，请稍后再试", 429)
+
         # Clamp volumes to a safe range
         bgm_volume = max(0.0, min(1.0, bgm_volume))
         voice_volume = max(0.0, min(1.0, voice_volume))
@@ -770,6 +877,8 @@ def edit_video_async():
         if clips is None:
             if not video_ids or not isinstance(video_ids, list) or len(video_ids) == 0:
                 return response_error("视频ID列表不能为空", 400)
+            if len(video_ids) > MAX_CLIPS:
+                return response_error(f"video_ids 数量超出限制（{MAX_CLIPS}）", 400)
         
         try:
             speed = float(speed)
@@ -783,7 +892,7 @@ def edit_video_async():
         # 新协议：clips 优先（支持 video/image 混排）
         if clips is not None:
             try:
-                segment_paths, legacy_video_ids, normalized_clips, temp_files = _build_segments_from_request(data)
+                segment_paths, legacy_video_ids, normalized_clips, temp_files, temp_dir = _build_segments_from_request(data)
             except Exception as ex:
                 return response_error(str(ex), 400)
 
@@ -826,6 +935,10 @@ def edit_video_async():
                     if subtitle_path.startswith('/'):
                         subtitle_path = subtitle_path.lstrip('/')
                     abs_sub_path = get_abs_path(subtitle_path)
+                    try:
+                        abs_sub_path = _ensure_within_dir(abs_sub_path, SUBTITLE_DIR)
+                    except Exception:
+                        return response_error("字幕路径非法", 400)
                     if not os.path.isfile(abs_sub_path):
                         return response_error(f"字幕文件不存在：{subtitle_path}", 400)
 
@@ -886,7 +999,20 @@ def edit_video_async():
 
             t = threading.Thread(
                 target=_run_edit_task,
-                args=(task_id, segment_paths, voice_path, bgm_path, speed, abs_sub_path, bgm_volume, voice_volume, output_name, temp_files),
+                args=(
+                    task_id,
+                    segment_paths,
+                    voice_path,
+                    bgm_path,
+                    speed,
+                    abs_sub_path,
+                    bgm_volume,
+                    voice_volume,
+                    output_name,
+                    temp_files,
+                    temp_dir,
+                    (any(c.get("type") == "image" for c in normalized_clips) and any(c.get("type") == "video" for c in normalized_clips)),
+                ),
                 daemon=True,
             )
             with _TASK_LOCK:
@@ -899,6 +1025,7 @@ def edit_video_async():
         video_names = []  # 用于生成文件名
         voice_name = None
         bgm_name = None
+        total_seconds = 0.0
         
         with get_db() as db:
             for vid in video_ids:
@@ -908,6 +1035,12 @@ def edit_video_async():
                 abs_path = get_abs_path(mat.path)
                 if not os.path.exists(abs_path):
                     return response_error(f"视频文件不存在：{mat.path}", 400)
+                duration = float(mat.duration or 0.0) if mat.duration is not None else 0.0
+                if duration <= 0:
+                    duration = _probe_duration_seconds(abs_path)
+                if duration <= 0:
+                    return response_error(f"无法确定素材时长：{mat.path}", 400)
+                total_seconds += duration
                 video_paths.append(abs_path)
                 # 收集视频名称（去掉扩展名）
                 video_name = os.path.splitext(mat.name or os.path.basename(mat.path))[0]
@@ -959,6 +1092,10 @@ def edit_video_async():
                     subtitle_path = subtitle_path.lstrip('/')
                     logger.info(f"去掉前导斜杠后，路径={subtitle_path}")
                 abs_sub_path = get_abs_path(subtitle_path)
+                try:
+                    abs_sub_path = _ensure_within_dir(abs_sub_path, SUBTITLE_DIR)
+                except Exception:
+                    return response_error("字幕路径非法", 400)
                 logger.info(f"字幕文件路径：相对路径={subtitle_path}，绝对路径={abs_sub_path}")
                 if not os.path.isfile(abs_sub_path):
                     logger.error(f"字幕文件不存在：绝对路径={abs_sub_path}")
@@ -966,6 +1103,9 @@ def edit_video_async():
                 logger.info(f"字幕文件验证成功：{abs_sub_path}")
             else:
                 logger.info("未提供字幕路径")
+
+            if total_seconds > MAX_TOTAL_SECONDS:
+                return response_error(f"素材总时长超出限制（{MAX_TOTAL_SECONDS} 秒）", 400)
 
             # 生成输出文件名：切片名称+配音名称+bgm名称+时间
             import re
@@ -1033,7 +1173,7 @@ def edit_video_async():
         # 启动后台任务
         t = threading.Thread(
             target=_run_edit_task,
-            args=(task_id, video_paths, voice_path, bgm_path, speed, abs_sub_path, bgm_volume, voice_volume, output_name),
+            args=(task_id, video_paths, voice_path, bgm_path, speed, abs_sub_path, bgm_volume, voice_volume, output_name, None, None),
             daemon=True
         )
         with _TASK_LOCK:
@@ -1588,7 +1728,11 @@ def download_video(filename):
     """
     try:
         # 校验文件是否存在
-        output_path = os.path.join(OUTPUT_VIDEO_DIR, filename)
+        output_path = os.path.normpath(os.path.join(OUTPUT_VIDEO_DIR, filename))
+        try:
+            output_path = _ensure_within_dir(output_path, OUTPUT_VIDEO_DIR)
+        except Exception:
+            return response_error("非法路径", 400)
         if not os.path.exists(output_path):
             return response_error("视频文件不存在", 404)
 

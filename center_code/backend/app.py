@@ -40,6 +40,7 @@ from blueprints.editor import editor_bp
 
 # 导入任务处理器
 from services.task_processor import get_task_processor
+from auto_transcode_worker import maybe_start_transcode_worker
 
 app = Flask(__name__, static_folder='../frontend/dist', static_url_path='')
 
@@ -541,6 +542,16 @@ def print_startup_info():
         except Exception as e:
             print(f"  ❌ 定时任务检查器 - 启动失败: {e}")
             print("     ⚠️  定时发布任务将不会自动执行")
+
+        # 可选：自动拉起转码 worker（仅在非生产环境默认启用；或显式 AUTO_START_TRANSCODE_WORKER=true）
+        try:
+            started = maybe_start_transcode_worker()
+            if started:
+                print("  ✅ 转码 Worker - 已自动拉起（worker_transcode.py）")
+            else:
+                print("  ⏭️  转码 Worker - 未拉起（无待处理任务或已在运行）")
+        except Exception as e:
+            print(f"  ❌ 转码 Worker - 自动拉起失败: {e}")
     else:
         # 这是重载进程，不启动定时检查器（主进程的检查器会继续运行）
         print("  ⏸️  定时任务检查器 - 已跳过（重载模式）")

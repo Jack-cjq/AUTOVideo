@@ -9,7 +9,7 @@
             ref="uploadInput" 
             type="file" 
             style="display:none" 
-            accept="video/*,audio/*,image/*,.mp4,.avi,.mov,.mp3,.wav,.flac,.jpg,.jpeg,.png,.gif,.webp"
+            accept="video/*,audio/*,image/*,.mp4,.avi,.mov,.mp3,.wav,.flac,.m4a,.aac,.ogg,.opus,.jpg,.jpeg,.png,.gif,.webp"
             @change="handleUpload"
           />
           <button class="btn" type="button" title="上传素材（视频/音频/图片）" @click="triggerUpload">
@@ -467,7 +467,7 @@ function setCloudTab(tab) {
 // 数据加载
 async function loadMaterials() {
   try {
-    const response = await materialApi.getMaterials({ type: null })
+    const response = await materialApi.getMaterials({ type: null })    
     if (response.code === 200) {
       // 后端返回的 data 直接是数组，不是 { materials: [...] }
       materials.value = Array.isArray(response.data) ? response.data : (response.data?.materials || [])
@@ -564,15 +564,24 @@ function renderMaterialCard(m) {
   const isVideo = type === 'video'
   const isAudio = type === 'audio'
   const isImage = type === 'image'
+  const status = ((m.status || 'ready') + '').toLowerCase()
+  const isReady = status === 'ready'
   const badge = isVideo ? 'video' : isImage ? 'image' : 'audio'
   const badgeLabel = isVideo ? '视频' : isImage ? '图片' : '音频'
   const filename = (m.path || '').split('/').pop() || '-'
   const mediaUrl = toUploadsUrl(m.path)
   const showAdd = isVideo || isImage
+
+  const statusBadgeHtml =
+    status === 'processing'
+      ? `<span class="badge status processing">转码中</span>`
+      : status === 'failed'
+        ? `<span class="badge status failed">失败</span>`
+        : ''
   
   // 如果是视频，使用 video 元素显示缩略图；如果是图片，显示 img；如果是音频，显示占位图标
   let coverHtml = ''
-  if (isVideo && mediaUrl) {
+  if (isVideo && mediaUrl && isReady) {
     coverHtml = `
       <video 
         class="card-video-thumbnail" 
@@ -584,9 +593,10 @@ function renderMaterialCard(m) {
       </video>
       <div class="card-cover-overlay">
         <span class="badge ${badge}">${badgeLabel}</span>
+        ${statusBadgeHtml}
       </div>
     `
-  } else if (isImage && mediaUrl) {
+  } else if (isImage && mediaUrl && isReady) {
     coverHtml = `
       <img
         class="card-image-thumbnail"
@@ -596,6 +606,7 @@ function renderMaterialCard(m) {
       />
       <div class="card-cover-overlay">
         <span class="badge ${badge}">${badgeLabel}</span>
+        ${statusBadgeHtml}
       </div>
     `
   } else {
@@ -605,6 +616,7 @@ function renderMaterialCard(m) {
           <path d="M11 5L6 9H2v6h4l5 4V5zM19.07 4.93a10 10 0 010 14.14M15.54 8.46a5 5 0 010 7.07" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
         <span class="badge ${badge}">${badgeLabel}</span>
+        ${statusBadgeHtml}
       </div>
     `
   }
@@ -618,6 +630,7 @@ function renderMaterialCard(m) {
       <div class="card-meta">
         <div>存储：${escapeHtml(filename)}</div>
         <div>上传：${escapeHtml((m.created_at || m.create_time) ? new Date(m.created_at || m.create_time).toLocaleString() : '-')}</div>
+        <div>状态：${escapeHtml(status)}</div>
         <div>时长：<span data-meta="duration">-</span></div>
         <div>分辨率：<span data-meta="resolution">-</span></div>
       </div>
@@ -689,7 +702,10 @@ function renderOutputCard(o) {
 }
 
 function bindMaterialCard(card, m) {
-  const url = toUploadsUrl(m.path)
+  const status = ((m.status || 'ready') + '').toLowerCase()
+  const isReady = status === 'ready'
+  const primaryPath = isReady ? m.path : (m.original_path || m.path)
+  const url = primaryPath ? toUploadsUrl(primaryPath) : ''
   const downloadBtn = card.querySelector('[data-action="download"]')
   const previewBtn = card.querySelector('[data-action="preview"]')
   const addBtn = card.querySelector('[data-action="add"]')
@@ -698,10 +714,20 @@ function bindMaterialCard(card, m) {
   const deleteBtn = card.querySelector('[data-action="delete"]')
   const videoThumbnail = card.querySelector('.card-video-thumbnail')
 
-  if (downloadBtn) downloadBtn.href = url
+  if (downloadBtn) {
+    downloadBtn.href = url || '#'
+    downloadBtn.title = isReady ? '下载' : (m.original_path ? '下载原始文件' : '下载（文件未就绪）')
+    downloadBtn.onclick = (e) => {
+      if (!url) e.preventDefault()
+    }
+  }
   
   if (previewBtn) {
     previewBtn.onclick = () => {
+      if (!isReady) {
+        showToast(status === 'processing' ? '素材转码中，暂不可预览' : '素材不可用（转码失败）', 'error')
+        return
+      }
       const t = (m.type || '').toLowerCase()
       const kind = t === 'audio' ? 'audio' : t === 'image' ? 'image' : 'video'
       openModal(m.name || '预览', kind, url)
@@ -709,7 +735,7 @@ function bindMaterialCard(card, m) {
   }
   
   // 处理视频缩略图
-  if (videoThumbnail && m.type === 'video') {
+  if (videoThumbnail && m.type === 'video' && isReady) {
     // 设置视频当前时间为第一秒，以显示画面帧
     videoThumbnail.currentTime = 0.1
     // 加载视频元数据以获取时长和分辨率
@@ -753,6 +779,10 @@ function bindMaterialCard(card, m) {
 
   if (addBtn) {
     addBtn.onclick = () => {
+      if (!isReady) {
+        showToast('素材未就绪，暂不可添加到剪辑轨道', 'error')
+        return
+      }
       if (m.type === 'video') {
         addVideoClip(m.id)
         showToast('已添加到剪辑轨道')
@@ -765,6 +795,10 @@ function bindMaterialCard(card, m) {
 
   if (setVoiceBtn) {
     setVoiceBtn.onclick = () => {
+      if (!isReady) {
+        showToast('素材未就绪，暂不可设为配音', 'error')
+        return
+      }
       setVoice(m.id)
       showToast('已设置为配音')
     }
@@ -772,6 +806,10 @@ function bindMaterialCard(card, m) {
 
   if (setBgmBtn) {
     setBgmBtn.onclick = () => {
+      if (!isReady) {
+        showToast('素材未就绪，暂不可设为BGM', 'error')
+        return
+      }
       setBgm(m.id)
       showToast('已选择 BGM')
     }
@@ -817,9 +855,11 @@ function bindMaterialCard(card, m) {
   }
 
   // 加载元数据
-  if (m.type === 'video') loadVideoMeta(m, card)
-  if (m.type === 'audio') loadAudioMeta(m, card)
-  if (m.type === 'image') loadImageMeta(m, card)
+  if (isReady) {
+    if (m.type === 'video') loadVideoMeta(m, card)
+    if (m.type === 'audio') loadAudioMeta(m, card)
+    if (m.type === 'image') loadImageMeta(m, card)
+  }
 }
 
 function bindOutputCard(card, o) {
@@ -1044,8 +1084,11 @@ async function handleUpload(e) {
     const response = await materialApi.uploadMaterial(file)
     
     if (response.code === 200) {
+      const materialId = response.data?.material_id
       const uploadedType = response.data?.type
-      showToast('上传成功，已刷新素材库')
+      const status = ((response.data?.status || 'ready') + '').toLowerCase()
+
+      showToast(status === 'processing' ? '已接收，转码中（稍后可预览）' : '上传成功，已刷新素材库')
       
       // 如果是音频文件，自动切换到 BGM 库
       if (uploadedType === 'audio') {
@@ -1061,6 +1104,10 @@ async function handleUpload(e) {
       // 确保渲染
       await nextTick()
       renderCloud()
+
+      if (status === 'processing' && materialId) {
+        pollMaterialStatus(materialId)
+      }
     } else {
       showToast(`上传失败：${response.message || '未知错误'}`, 'error', 3500)
     }
@@ -1069,6 +1116,45 @@ async function handleUpload(e) {
   } finally {
     e.target.value = ''
   }
+}
+
+let _pollingMaterialIds = new Set()
+function pollMaterialStatus(materialId) {
+  const mid = Number(materialId)
+  if (!mid || _pollingMaterialIds.has(mid)) return
+  _pollingMaterialIds.add(mid)
+
+  const startedAt = Date.now()
+  const timeoutMs = 5 * 60 * 1000
+  const intervalMs = 2000
+
+  const tick = async () => {
+    try {
+      await loadMaterials()
+      await nextTick()
+      renderCloud()
+
+      const m = materials.value.find(x => Number(x.id) === mid)
+      const status = ((m?.status || 'ready') + '').toLowerCase()
+      if (status === 'processing') {
+        if (Date.now() - startedAt < timeoutMs) {
+          setTimeout(tick, intervalMs)
+          return
+        }
+        showToast('转码超时，请稍后手动刷新', 'error', 3500)
+      } else if (status === 'ready') {
+        showToast('转码完成，可预览/使用')
+      } else if (status === 'failed') {
+        showToast('转码失败（可下载原始文件排查）', 'error', 3500)
+      }
+    } catch (e) {
+      // ignore polling errors
+    } finally {
+      _pollingMaterialIds.delete(mid)
+    }
+  }
+
+  setTimeout(tick, intervalMs)
 }
 
 function triggerUpload() {
@@ -1450,6 +1536,21 @@ onMounted(async () => {
 .badge.image {
   background: rgba(155, 89, 182, 0.12);
   color: #7d3c98;
+}
+
+.badge.status {
+  left: 10px;
+  right: auto;
+}
+
+.badge.status.processing {
+  background: rgba(255, 122, 0, 0.12);
+  color: #c35d00;
+}
+
+.badge.status.failed {
+  background: rgba(220, 53, 69, 0.12);
+  color: #c82333;
 }
 
 .card-body {

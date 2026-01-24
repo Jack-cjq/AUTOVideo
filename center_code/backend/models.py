@@ -232,7 +232,10 @@ class Material(Base):
     
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(255), nullable=False)  # 文件名
-    path = Column(String(500), nullable=False)  # 存储路径（相对路径），缩短长度避免索引过长，唯一性由应用层保证
+    status = Column(String(50), default='ready')  # ready/processing/failed
+    path = Column(String(500), nullable=True)  # 当前可用的文件路径（相对 BASE_DIR）
+    original_path = Column(String(500), nullable=True)  # 仅当发生转码时保留（方案C）
+    meta_json = Column(Text, nullable=True)  # ffprobe 结果摘要，便于排查/展示
     type = Column(String(50), nullable=False)  # video/audio
     duration = Column(REAL)  # 时长（秒），使用 REAL 支持小数
     width = Column(Integer)  # 宽（视频）
@@ -264,6 +267,35 @@ class VideoEditTask(Base):
                        onupdate=lambda: __import__('datetime').datetime.now())
 
 
+class MaterialTranscodeTask(Base):
+    """素材转码任务表（DB 队列）"""
+    __tablename__ = 'material_transcode_tasks'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    material_id = Column(Integer, ForeignKey('materials.id'), nullable=False, index=True)
+
+    input_path = Column(String(500), nullable=False)  # 原始文件相对路径
+    output_path = Column(String(500), nullable=False)  # 转码产物相对路径
+    kind = Column(String(50), nullable=False)  # video/audio
+
+    status = Column(String(50), default='pending')  # pending/running/success/fail
+    progress = Column(Integer, default=0)  # 0-100
+    error_message = Column(Text, nullable=True)
+
+    attempts = Column(Integer, default=0)
+    max_attempts = Column(Integer, default=3)
+
+    locked_by = Column(String(100), nullable=True)
+    locked_at = Column(DateTime, nullable=True)
+
+    created_at = Column(DateTime, default=lambda: __import__('datetime').datetime.now())
+    updated_at = Column(
+        DateTime,
+        default=lambda: __import__('datetime').datetime.now(),
+        onupdate=lambda: __import__('datetime').datetime.now(),
+    )
+
+
 # 创建索引
 Index('idx_messages_account_id', Message.account_id)
 Index('idx_messages_timestamp', Message.timestamp)
@@ -272,8 +304,12 @@ Index('idx_publish_plans_status', PublishPlan.status)
 Index('idx_publish_plans_platform', PublishPlan.platform)
 Index('idx_account_stats_account_date', AccountStats.account_id, AccountStats.stat_date)
 Index('idx_materials_type_time', Material.type, Material.created_at)
+Index('idx_materials_status_time', Material.status, Material.updated_at)
 # 注意：path 字段的唯一性由应用层保证，因为 MySQL 对长字段的唯一索引有限制
 # 如果需要数据库层面的唯一性，可以考虑使用哈希字段或缩短路径长度
 Index('idx_video_edit_tasks_status_time', VideoEditTask.status, VideoEditTask.created_at)
 Index('idx_video_edit_tasks_update_time', VideoEditTask.updated_at)
+
+Index('idx_material_transcode_tasks_status_time', MaterialTranscodeTask.status, MaterialTranscodeTask.created_at)
+Index('idx_material_transcode_tasks_lock', MaterialTranscodeTask.status, MaterialTranscodeTask.locked_at)
 

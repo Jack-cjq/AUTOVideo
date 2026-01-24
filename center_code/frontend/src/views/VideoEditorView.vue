@@ -800,8 +800,8 @@
               v-for="material in filteredMaterials" 
               :key="material.id"
               class="material-item"
-              :class="{ selected: Number(materialSelector.selectedId) === Number(material.id) }"
-              @click="selectMaterial(material)"
+              :class="{ selected: Number(materialSelector.selectedId) === Number(material.id), disabled: !isMaterialReady(material) }"
+              @click="trySelectMaterial(material)"
             >
               <div class="material-info">
                 <div class="material-name">{{ getMaterialDisplayName(material) }}</div>
@@ -810,6 +810,9 @@
                   <span v-if="material.size" style="margin-left: 12px;">大小: {{ formatSize(material.size) }}</span>
                   <span v-if="material.created_at || material.create_time" style="margin-left: 12px; color: #8a94a3;">
                     {{ formatMaterialTime(material.created_at || material.create_time) }}
+                  </span>
+                  <span v-if="!isMaterialReady(material)" class="material-status" :class="statusClass(material)">
+                    {{ statusText(material) }}
                   </span>
                 </div>
                 <div v-if="materialSelector.type === 'audio'" class="material-preview" @click.stop="previewMaterial(material)">
@@ -1211,6 +1214,14 @@ async function handleAiVideoUpload(e) {
     if (response.code === 200) {
       const materialId = response.data?.material_id
       const uploadedType = (response.data?.type || '').toLowerCase()
+      const status = ((response.data?.status || 'ready') + '').toLowerCase()
+
+      if (status === 'processing' && materialId) {
+        emit('refresh-materials')
+        pollMaterialStatus(materialId)
+        ElMessage.info('已接收，转码中（完成后可用）')
+        return
+      }
       if (materialId) {
         // 添加到时间线
         const newTimeline = { ...props.timeline }
@@ -1241,6 +1252,44 @@ async function handleAiVideoUpload(e) {
   } finally {
     e.target.value = ''
   }
+}
+
+let _pollingMaterialIds = new Set()
+function pollMaterialStatus(materialId) {
+  const mid = Number(materialId)
+  if (!mid || _pollingMaterialIds.has(mid)) return
+  _pollingMaterialIds.add(mid)
+
+  const startedAt = Date.now()
+  const timeoutMs = 5 * 60 * 1000
+  const intervalMs = 2000
+
+  const tick = async () => {
+    try {
+      await loadMaterials()
+      emit('refresh-materials')
+
+      const m = effectiveMaterials.value.find(x => Number(x.id) === mid)
+      const s = ((m?.status || 'ready') + '').toLowerCase()
+      if (s === 'processing') {
+        if (Date.now() - startedAt < timeoutMs) {
+          setTimeout(tick, intervalMs)
+          return
+        }
+        ElMessage.warning('转码超时，请稍后手动刷新素材库')
+      } else if (s === 'ready') {
+        ElMessage.success('转码完成，可使用该素材')
+      } else if (s === 'failed') {
+        ElMessage.error('转码失败（可在素材库下载原始文件排查）')
+      }
+    } catch (e) {
+      // ignore polling errors
+    } finally {
+      _pollingMaterialIds.delete(mid)
+    }
+  }
+
+  setTimeout(tick, intervalMs)
 }
 
 function handleAiGen() {
@@ -1352,7 +1401,31 @@ function filterMaterials() {
   
 }
 
-function selectMaterial(material) {
+function materialStatus(material) {
+  return ((material?.status || 'ready') + '').toLowerCase()
+}
+
+function isMaterialReady(material) {
+  return materialStatus(material) === 'ready' && !!material?.path
+}
+
+function statusText(material) {
+  const s = materialStatus(material)
+  if (s === 'processing') return '转码中'
+  if (s === 'failed') return '失败'
+  return s || 'unknown'
+}
+
+function statusClass(material) {
+  const s = materialStatus(material)
+  return s ? `status-${s}` : ''
+}
+
+function trySelectMaterial(material) {
+  if (!isMaterialReady(material)) {
+    ElMessage.info('素材未就绪，暂不可选择')
+    return
+  }
   materialSelector.value.selectedId = Number(material?.id)
 }
 
@@ -1361,6 +1434,11 @@ function confirmMaterialSelection() {
   
   const materialId = materialSelector.value.selectedId
   const selectorType = materialSelector.value.type || 'media'
+  const selectedMat = effectiveMaterials.value.find(x => Number(x.id) === Number(materialId))
+  if (!isMaterialReady(selectedMat)) {
+    ElMessage.info('素材未就绪，暂不可使用')
+    return
+  }
   const newTimeline = { ...props.timeline }
   
   if (selectorType === 'media') {
@@ -1537,6 +1615,10 @@ function formatMaterialTime(timeStr) {
 // 预览素材（音频试听）
 function previewMaterial(material) {
   if (!material || !material.path) return
+  if (!isMaterialReady(material)) {
+    ElMessage.info('素材未就绪，暂不可试听')
+    return
+  }
   
   // 构建音频URL
   let audioUrl = material.path
@@ -3871,6 +3953,15 @@ onBeforeUnmount(() => {
   border-color: #1677ff;
 }
 
+.material-item.disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.material-item.disabled:hover {
+  background: transparent;
+}
+
 .material-info {
   flex: 1;
 }
@@ -3889,6 +3980,25 @@ onBeforeUnmount(() => {
   gap: 12px;
   flex-wrap: wrap;
   margin-top: 4px;
+}
+
+.material-status {
+  margin-left: auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  background: rgba(0, 0, 0, 0.06);
+  color: #2c3e50;
+}
+
+.material-status.status-processing {
+  background: rgba(255, 122, 0, 0.12);
+  color: #c35d00;
+}
+
+.material-status.status-failed {
+  background: rgba(220, 53, 69, 0.12);
+  color: #c82333;
 }
 
 .material-preview {

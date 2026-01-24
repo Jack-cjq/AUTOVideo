@@ -9,6 +9,8 @@ from typing import Optional, List
 # 导入配置
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+OUTPUT_VIDEO_DIR = os.path.join(BASE_DIR, "uploads", "videos")
+os.makedirs(OUTPUT_VIDEO_DIR, exist_ok=True)
 
 
 def safe_remove(file_path):
@@ -26,6 +28,262 @@ def get_abs_path(rel_path):
 
 
 class VideoEditor:
+    @staticmethod
+    def edit_mixed_concat_filter(
+        video_paths,
+        voice_path: Optional[str],
+        bgm_path: Optional[str],
+        speed=1.0,
+        subtitle_path: Optional[str] = None,
+        bgm_volume: float = 0.25,
+        voice_volume: float = 1.0,
+        output_name: Optional[str] = None,
+        target_width: int = 1080,
+        target_height: int = 1920,
+        target_fps: int = 30,
+    ):
+        """
+        Mixed clips path (image+video): use concat *filter* instead of concat demuxer to avoid
+        timestamp/duration issues that can freeze video while audio continues.
+        """
+        try:
+            import ffmpeg
+        except ImportError:
+            raise RuntimeError("未安装 ffmpeg-python，请先 pip install ffmpeg-python")
+
+        def _probe_video_dimensions(path: str):
+            try:
+                info = ffmpeg.probe(path)
+                streams = info.get("streams") or []
+                for s in streams:
+                    if (s.get("codec_type") or "").lower() == "video":
+                        w = s.get("width")
+                        h = s.get("height")
+                        return (int(w) if w else None, int(h) if h else None)
+            except Exception:
+                pass
+            return (None, None)
+
+        def _subtitle_style_for_min_dim(min_dim):
+            try:
+                d = int(min_dim or 0)
+            except Exception:
+                d = 0
+
+            if d <= 0:
+                font_size = 13
+            else:
+                font_size = round(d * 0.0125)
+                font_size = max(12, min(28, font_size))
+
+            outline = max(1, min(4, round(font_size / 18)))
+            shadow = max(1, min(4, round(font_size / 24)))
+            margin_v = 40
+            if d > 0:
+                try:
+                    margin_v = max(20, min(80, round(d * 0.05)))
+                except Exception:
+                    margin_v = 40
+            return (
+                "FontName=Microsoft YaHei"
+                f",FontSize={font_size}"
+                f",Outline={outline}"
+                f",Shadow={shadow}"
+                ",Alignment=2"
+                f",MarginV={margin_v}"
+            )
+
+        # Ensure FFmpeg is available (reuse existing logic in edit()) by touching PATH via config.
+        try:
+            import shutil
+
+            try:
+                from config import FFMPEG_PATH as config_ffmpeg_path
+
+                ffmpeg_path = os.environ.get("FFMPEG_PATH") or config_ffmpeg_path
+            except ImportError:
+                ffmpeg_path = os.environ.get("FFMPEG_PATH")
+
+            if ffmpeg_path and os.path.exists(ffmpeg_path):
+                ffmpeg_path = os.path.abspath(ffmpeg_path)
+                ffmpeg_dir = os.path.dirname(ffmpeg_path)
+                if ffmpeg_dir not in os.environ.get("PATH", ""):
+                    os.environ["PATH"] = ffmpeg_dir + os.pathsep + os.environ.get("PATH", "")
+                print(f"[VideoEditor] 使用环境变量指定的 FFmpeg：{ffmpeg_path}")
+            else:
+                which = shutil.which("ffmpeg")
+                if which:
+                    print(f"[VideoEditor] 使用系统 PATH 的 FFmpeg：{which}")
+                else:
+                    print("[VideoEditor] 警告：未检测到 ffmpeg 可执行文件（可能会失败）")
+        except Exception:
+            pass
+
+        import secrets
+        import re
+        import datetime
+
+        def sanitize_filename(s):
+            if not s:
+                return ""
+            s = re.sub(r'[<>:"/\\\\|?*]', '', s)
+            s = re.sub(r'\s+', '_', s)
+            s = s.strip('._')
+            return s[:100]
+
+        if output_name:
+            safe_name = sanitize_filename(output_name)
+            if not safe_name:
+                output_name = f"output_{secrets.token_hex(4)}.mp4"
+            else:
+                output_name = safe_name if safe_name.endswith(".mp4") else f"{safe_name}.mp4"
+        else:
+            output_name = f"output_{secrets.token_hex(4)}.mp4"
+
+        output_path = os.path.join(OUTPUT_VIDEO_DIR, output_name)
+
+        # Probe voice duration (for optional trimming)
+        voice_duration = None
+        if voice_path and os.path.exists(voice_path):
+            try:
+                voice_probe = ffmpeg.probe(voice_path)
+                voice_duration = float(voice_probe.get("format", {}).get("duration", 0.0)) or None
+                if voice_duration:
+                    print(f"[VideoEditor] 配音时长: {voice_duration:.2f}秒")
+            except Exception as dur_error:
+                print(f"[VideoEditor] 警告：获取配音时长失败：{dur_error}")
+
+        # Subtitle font scaling: probe the first segment's dimensions
+        first_w, first_h = (None, None)
+        if video_paths:
+            first_w, first_h = _probe_video_dimensions(video_paths[0])
+        min_dim = None
+        if first_w and first_h:
+            try:
+                min_dim = min(int(first_w), int(first_h))
+            except Exception:
+                min_dim = None
+        elif first_w:
+            min_dim = first_w
+        elif first_h:
+            min_dim = first_h
+        sub_style = _subtitle_style_for_min_dim(min_dim)
+
+        try:
+            # Build per-clip normalized video streams
+            v_streams = []
+            for idx, p in enumerate(video_paths):
+                inp = ffmpeg.input(p)
+                v = inp.video
+                # Use per-input no-op expressions to prevent ffmpeg-python from de-duplicating identical
+                # filter nodes across multiple inputs (which can trigger "multiple outgoing edges" errors).
+                w_expr = f"{int(target_width)}+0*{idx}"
+                h_expr = f"{int(target_height)}+0*{idx}"
+                x_expr = f"(ow-iw)/2+0*{idx}"
+                y_expr = f"(oh-ih)/2+0*{idx}"
+                v = v.filter("scale", w_expr, h_expr, force_original_aspect_ratio="decrease")
+                v = v.filter("pad", target_width, target_height, x_expr, y_expr)
+                v_streams.append(v)
+
+            if not v_streams:
+                raise RuntimeError("无可用视频片段")
+
+            if len(v_streams) == 1:
+                v_stream = v_streams[0]
+            else:
+                concat_node = ffmpeg.concat(*v_streams, v=1, a=0).node
+                v_stream = concat_node[0]
+
+            # Normalize frame rate / sample aspect ratio / pixel format once after concat
+            v_stream = v_stream.filter("fps", fps=target_fps)
+            v_stream = v_stream.filter("setsar", "1")
+            v_stream = v_stream.filter("format", "yuv420p")
+
+            # Apply speed via setpts
+            try:
+                speed_f = float(speed)
+            except Exception:
+                speed_f = 1.0
+            if speed_f and abs(speed_f - 1.0) > 1e-6:
+                v_stream = v_stream.filter("setpts", f"{1/speed_f}*PTS")
+                print(f"[VideoEditor] 混剪（concat filter）应用调速：{speed_f}x")
+
+            # If voice exists, trim video to voice duration (avoid trailing black/freeze)
+            if voice_duration and voice_duration > 0:
+                v_stream = v_stream.trim(end=voice_duration).setpts("PTS-STARTPTS")
+
+            # Subtitles (must be in filtergraph in this mode)
+            if subtitle_path and os.path.exists(subtitle_path):
+                abs_subtitle_path = os.path.abspath(subtitle_path)
+                sub_file_raw = abs_subtitle_path.replace("\\", "/")
+                v_stream = v_stream.filter(
+                    "subtitles",
+                    filename=sub_file_raw,
+                    charenc="UTF-8",
+                    force_style=sub_style,
+                )
+
+            # Audio mixing: voice + bgm
+            audio_stream = None
+            if voice_path:
+                voice_path = os.path.normpath(voice_path)
+                if os.path.exists(voice_path):
+                    a_voice = ffmpeg.input(voice_path).audio
+                    a_voice = a_voice.filter("volume", voice_volume)
+                    audio_stream = a_voice
+                else:
+                    print(f"[VideoEditor] 警告：配音文件不存在：{voice_path}")
+
+            if bgm_path:
+                bgm_path = os.path.normpath(bgm_path)
+                if os.path.exists(bgm_path):
+                    a_bgm = ffmpeg.input(bgm_path, stream_loop=-1).audio
+                    a_bgm = a_bgm.filter("volume", bgm_volume)
+                    if audio_stream is None:
+                        audio_stream = a_bgm
+                    else:
+                        audio_stream = ffmpeg.filter(
+                            [audio_stream, a_bgm],
+                            "amix",
+                            inputs=2,
+                            duration="shortest",
+                            dropout_transition=0,
+                        )
+                else:
+                    print(f"[VideoEditor] 警告：BGM文件不存在：{bgm_path}")
+
+            output_kwargs = {"vcodec": "libx264", "pix_fmt": "yuv420p"}
+            if audio_stream is not None:
+                output_kwargs["acodec"] = "aac"
+                stream = ffmpeg.output(v_stream, audio_stream, output_path, **output_kwargs)
+            else:
+                stream = ffmpeg.output(v_stream, output_path, **output_kwargs)
+
+            print(f"[VideoEditor] 混剪（concat filter）开始执行 FFmpeg，输出：{output_path}")
+            try:
+                ffmpeg.run(stream, overwrite_output=True, capture_stdout=True, capture_stderr=True)
+            except ffmpeg.Error as fe:  # type: ignore[attr-defined]
+                err = getattr(fe, "stderr", None)
+                try:
+                    err_text = err.decode("utf-8", errors="replace") if isinstance(err, (bytes, bytearray)) else str(err)
+                except Exception:
+                    err_text = str(err)
+                raise RuntimeError(f"FFmpeg 执行失败：{err_text}") from fe
+
+            if os.path.exists(output_path):
+                file_size = os.path.getsize(output_path)
+                print(f"[VideoEditor] 混剪成功：{output_path}，大小：{file_size} 字节")
+                return output_path
+            raise RuntimeError("混剪失败：未生成输出文件")
+        except Exception as e:
+            print(f"[VideoEditor] 混剪失败：{e}")
+            import traceback
+
+            traceback.print_exc()
+            if os.path.exists(output_path):
+                safe_remove(output_path)
+            raise
+
     @staticmethod
     def edit(
         video_paths,
@@ -154,9 +412,7 @@ class VideoEditor:
             raise RuntimeError(f"检查 FFmpeg 时出错：{str(e)}")
         
         # 输出目录
-        OUTPUT_VIDEO_DIR = os.path.join(BASE_DIR, 'uploads', 'videos')
-        if not os.path.exists(OUTPUT_VIDEO_DIR):
-            os.makedirs(OUTPUT_VIDEO_DIR)
+        os.makedirs(OUTPUT_VIDEO_DIR, exist_ok=True)
         
         # 1. 生成输出文件名
         import secrets

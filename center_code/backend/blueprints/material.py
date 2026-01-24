@@ -6,14 +6,17 @@ import os
 import sys
 import uuid
 import glob
-from flask import Blueprint, request, send_from_directory
+import json
+import shutil
+from flask import Blueprint, request, send_from_directory, jsonify
 from datetime import datetime
 from werkzeug.utils import secure_filename
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils import response_success, response_error, login_required
-from models import Material
+from models import Material, MaterialTranscodeTask
 from db import get_db
+from media_utils import ffprobe, summarize_probe, decide_transcode, get_duration_seconds
 
 material_bp = Blueprint('material', __name__, url_prefix='/api')
 
@@ -23,6 +26,10 @@ UPLOAD_ROOT = os.path.join(BASE_DIR, 'uploads')
 MATERIAL_VIDEO_DIR = os.path.join(UPLOAD_ROOT, 'materials', 'videos')
 MATERIAL_AUDIO_DIR = os.path.join(UPLOAD_ROOT, 'materials', 'audios')
 MATERIAL_IMAGE_DIR = os.path.join(UPLOAD_ROOT, 'materials', 'images')
+MATERIAL_ORIGINALS_DIR = os.path.join(UPLOAD_ROOT, 'materials', 'originals')
+MATERIAL_ORIGINAL_VIDEO_DIR = os.path.join(MATERIAL_ORIGINALS_DIR, 'videos')
+MATERIAL_ORIGINAL_AUDIO_DIR = os.path.join(MATERIAL_ORIGINALS_DIR, 'audios')
+MATERIAL_TMP_DIR = os.path.join(UPLOAD_ROOT, 'materials', '_tmp')
 
 # 允许的文件扩展名
 ALLOWED_VIDEO_EXT = ('.mp4', '.avi', '.mov')
@@ -30,7 +37,16 @@ ALLOWED_AUDIO_EXT = ('.mp3', '.wav', '.flac')
 ALLOWED_IMAGE_EXT = ('.jpg', '.jpeg', '.png', '.gif', '.webp')
 
 # 自动创建目录
-for dir_path in [UPLOAD_ROOT, MATERIAL_VIDEO_DIR, MATERIAL_AUDIO_DIR, MATERIAL_IMAGE_DIR]:
+for dir_path in [
+    UPLOAD_ROOT,
+    MATERIAL_VIDEO_DIR,
+    MATERIAL_AUDIO_DIR,
+    MATERIAL_IMAGE_DIR,
+    MATERIAL_ORIGINALS_DIR,
+    MATERIAL_ORIGINAL_VIDEO_DIR,
+    MATERIAL_ORIGINAL_AUDIO_DIR,
+    MATERIAL_TMP_DIR,
+]:
     if not os.path.exists(dir_path):
         os.makedirs(dir_path)
 
@@ -82,90 +98,263 @@ def upload_material():
         if file.filename.strip() == '':
             return response_error('文件名不能为空', 400)
         
-        # 校验文件类型并确定存储目录
+        # 图片：仍用扩展名判定；视频/音频：用 ffprobe 判定（不要只靠扩展名）
         filename = file.filename
         file_type = None
-        save_dir = None
+        final_dir = None
+        originals_dir = None
+        probe_data = None
         
         # 提取文件扩展名用于调试
         ext = os.path.splitext(filename)[-1].lower()
-        
-        if allowed_file(filename, 'video'):
-            file_type = 'video'
-            save_dir = MATERIAL_VIDEO_DIR
-        elif allowed_file(filename, 'audio'):
-            file_type = 'audio'
-            save_dir = MATERIAL_AUDIO_DIR
-        elif allowed_file(filename, 'image'):
+
+        # Always save once, then route by detection.
+        unique_basename = str(uuid.uuid4())
+        tmp_name = unique_basename + (ext if ext else '')
+        tmp_path = os.path.join(MATERIAL_TMP_DIR, tmp_name)
+        file.save(tmp_path)
+
+        if allowed_file(filename, 'image'):
             file_type = 'image'
-            save_dir = MATERIAL_IMAGE_DIR
+            final_dir = MATERIAL_IMAGE_DIR
         else:
-            return response_error(
-                f'不支持的文件类型（扩展名: {ext}），仅支持视频(mp4/avi/mov)、音频(mp3/wav/flac)、图片(jpg/jpeg/png/gif/webp)',
-                400
-            )
+            try:
+                probe_data = ffprobe(tmp_path)
+            except Exception as e:
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
+                return response_error(f'ffprobe 失败：{e}', 500)
+
+            streams = probe_data.get("streams") or []
+            has_video = any((s.get("codec_type") or "").lower() == "video" for s in streams)
+            has_audio = any((s.get("codec_type") or "").lower() == "audio" for s in streams)
+
+            if has_video:
+                file_type = 'video'
+                final_dir = MATERIAL_VIDEO_DIR
+                originals_dir = MATERIAL_ORIGINAL_VIDEO_DIR
+            elif has_audio:
+                file_type = 'audio'
+                final_dir = MATERIAL_AUDIO_DIR
+                originals_dir = MATERIAL_ORIGINAL_AUDIO_DIR
+            else:
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
+                return response_error(f'不支持的文件类型（扩展名: {ext}），未检测到音频/视频流', 400)
         
         # 调试日志
         import logging
         logger = logging.getLogger(__name__)
-        logger.info(f'上传文件: {filename}, 扩展名: {ext}, 类型: {file_type}, 目录: {save_dir}')
+        logger.info(f'上传文件: {filename}, 扩展名: {ext}, 类型: {file_type}, 目录: {final_dir}')
         
-        # 生成唯一文件名
-        ext = os.path.splitext(filename)[-1].lower()
-        unique_filename = str(uuid.uuid4()) + ext
-        save_path = os.path.join(save_dir, unique_filename)
-        
-        # 保存文件
-        file.save(save_path)
-        
-        # 提取元数据（可选，需要 ffmpeg-python）
-        duration = None
-        width = None
-        height = None
-        size = None
-        
+        # 图片：无需转码，直接保存到最终目录
+        if file_type == 'image':
+            unique_filename = tmp_name
+            save_path = os.path.join(final_dir, unique_filename)
+            try:
+                os.replace(tmp_path, save_path)
+            except Exception:
+                shutil.copy2(tmp_path, save_path)
+                os.remove(tmp_path)
+
+            relative_path = os.path.relpath(save_path, BASE_DIR).replace(os.sep, '/')
+            size = None
+            try:
+                size = os.path.getsize(save_path)
+            except Exception:
+                pass
+
+            with get_db() as db:
+                existing = db.query(Material).filter(Material.path == relative_path).first()
+                if existing:
+                    try:
+                        os.remove(save_path)
+                    except Exception:
+                        pass
+                    return response_error('该文件路径已存在', 409)
+
+                material = Material(
+                    name=filename,
+                    path=relative_path,
+                    type=file_type,
+                    status='ready',
+                    duration=None,
+                    width=None,
+                    height=None,
+                    size=size,
+                    original_path=None,
+                    meta_json=None,
+                )
+                db.add(material)
+                db.flush()
+                db.commit()
+
+                return response_success(
+                    {
+                        'material_id': material.id,
+                        'name': filename,
+                        'target_name': unique_filename,
+                        'path': relative_path,
+                        'type': file_type,
+                        'status': material.status,
+                    },
+                    '上传成功',
+                )
+
+        # 视频/音频：落盘到 originals（已在 tmp 判定过类型），再决定是否转码
+        if not originals_dir:
+            try:
+                os.remove(tmp_path)
+            except Exception:
+                pass
+            return response_error('服务端 originals 目录未配置', 500)
+
+        input_filename = tmp_name
+        input_save_path = os.path.join(originals_dir, input_filename)
         try:
-            size = os.path.getsize(save_path)
+            os.replace(tmp_path, input_save_path)
+        except Exception:
+            shutil.copy2(tmp_path, input_save_path)
+            os.remove(tmp_path)
+        
+        size = None
+        try:
+            size = os.path.getsize(input_save_path)
         except Exception:
             pass
-        
-        # TODO: 使用 ffmpeg 提取视频/音频元数据
-        # 这里暂时跳过，后续可以添加
-        
-        # 写入数据库（存储相对路径）
-        relative_path = os.path.relpath(save_path, BASE_DIR).replace(os.sep, '/')
-        
-        # 检查路径是否已存在（应用层唯一性检查）
-        with get_db() as db:
-            existing = db.query(Material).filter(Material.path == relative_path).first()
-            if existing:
-                # 如果已存在，删除刚保存的文件
+
+        if not probe_data:
+            try:
+                probe_data = ffprobe(input_save_path)
+            except Exception as e:
                 try:
-                    os.remove(save_path)
+                    os.remove(input_save_path)
+                except Exception:
+                    pass
+                return response_error(f'ffprobe 失败：{e}', 500)
+
+        meta = summarize_probe(probe_data)
+        duration = get_duration_seconds(probe_data) or None
+        width = (meta.get("video") or {}).get("width") if isinstance(meta.get("video"), dict) else None
+        height = (meta.get("video") or {}).get("height") if isinstance(meta.get("video"), dict) else None
+
+        need_transcode, reason = decide_transcode(file_type, probe_data)
+        logger.info(f'转码判定: need={need_transcode}, reason={reason}')
+
+        # 不需要转码：移动到最终目录，original_path=NULL，status=ready
+        if not need_transcode:
+            final_save_path = os.path.join(final_dir, input_filename)
+            try:
+                os.replace(input_save_path, final_save_path)
+            except Exception:
+                shutil.copy2(input_save_path, final_save_path)
+                os.remove(input_save_path)
+
+            relative_path = os.path.relpath(final_save_path, BASE_DIR).replace(os.sep, '/')
+            with get_db() as db:
+                existing = db.query(Material).filter(Material.path == relative_path).first()
+                if existing:
+                    try:
+                        os.remove(final_save_path)
+                    except Exception:
+                        pass
+                    return response_error('该文件路径已存在', 409)
+
+                material = Material(
+                    name=filename,
+                    path=relative_path,
+                    original_path=None,
+                    status='ready',
+                    type=file_type,
+                    duration=duration,
+                    width=width,
+                    height=height,
+                    size=size,
+                    meta_json=json.dumps(meta, ensure_ascii=False),
+                )
+                db.add(material)
+                db.flush()
+                db.commit()
+
+                return response_success(
+                    {
+                        'material_id': material.id,
+                        'name': filename,
+                        'target_name': os.path.basename(final_save_path),
+                        'path': relative_path,
+                        'type': file_type,
+                        'status': material.status,
+                    },
+                    '上传成功',
+                )
+
+        # 需要转码：保留 originals，path 先写占位输出路径，status=processing，创建任务
+        output_ext = ".mp4" if file_type == "video" else ".mp3"
+        output_filename = unique_basename + output_ext
+        output_save_path = os.path.join(final_dir, output_filename)
+        input_rel = os.path.relpath(input_save_path, BASE_DIR).replace(os.sep, '/')
+        output_rel = os.path.relpath(output_save_path, BASE_DIR).replace(os.sep, '/')
+
+        with get_db() as db:
+            existing = db.query(Material).filter(Material.path == output_rel).first()
+            if existing:
+                try:
+                    os.remove(input_save_path)
                 except Exception:
                     pass
                 return response_error('该文件路径已存在', 409)
-            
+
             material = Material(
                 name=filename,
-                path=relative_path,
+                path=output_rel,
+                original_path=input_rel,
+                status='processing',
                 type=file_type,
                 duration=duration,
                 width=width,
                 height=height,
-                size=size
+                size=size,
+                meta_json=json.dumps(meta, ensure_ascii=False),
             )
             db.add(material)
             db.flush()
+
+            task = MaterialTranscodeTask(
+                material_id=material.id,
+                input_path=input_rel,
+                output_path=output_rel,
+                kind=file_type,
+                status='pending',
+                progress=0,
+                attempts=0,
+                max_attempts=3,
+                locked_by=None,
+                locked_at=None,
+            )
+            db.add(task)
             db.commit()
-            
-            return response_success({
-                'material_id': material.id,
-                'name': filename,
-                'target_name': unique_filename,
-                'path': relative_path,
-                'type': file_type
-            }, '上传成功')
+
+            # Compatibility: keep JSON {code:200} for existing frontend, but use HTTP 202.
+            return (
+                jsonify(
+                    {
+                        "code": 200,
+                        "message": "已接收，转码处理中",
+                        "data": {
+                            "material_id": material.id,
+                            "name": filename,
+                            "path": output_rel,
+                            "type": file_type,
+                            "status": material.status,
+                        },
+                    }
+                ),
+                202,
+            )
     
     except Exception as e:
         return response_error(str(e), 500)
@@ -222,8 +411,11 @@ def get_materials():
                 materials_list.append({
                     'id': mat.id,
                     'name': mat.name,
-                    'path': mat.path,
+                    'path': mat.path or '',
                     'type': material_type,  # 统一转换为小写
+                    'status': getattr(mat, 'status', None) or 'ready',
+                    'original_path': getattr(mat, 'original_path', None),
+                    'meta_json': getattr(mat, 'meta_json', None),
                     'duration': mat.duration,
                     'width': mat.width,
                     'height': mat.height,
@@ -272,8 +464,8 @@ def clear_materials():
         deleted_files = 0
         delete_errors = []
         
-        # 删除文件
-        for dir_path in [MATERIAL_VIDEO_DIR, MATERIAL_AUDIO_DIR, MATERIAL_IMAGE_DIR]:
+        # 删除文件（含 originals）
+        for dir_path in [MATERIAL_VIDEO_DIR, MATERIAL_AUDIO_DIR, MATERIAL_IMAGE_DIR, MATERIAL_ORIGINALS_DIR]:
             try:
                 if not os.path.isdir(dir_path):
                     continue
@@ -282,16 +474,37 @@ def clear_materials():
                         if os.path.isfile(path):
                             os.remove(path)
                             deleted_files += 1
+                        elif os.path.isdir(path):
+                            shutil.rmtree(path, ignore_errors=True)
                     except Exception as e:
                         delete_errors.append(f"{path}: {e}")
             except Exception as e:
                 delete_errors.append(f"{dir_path}: {e}")
         
-        # 删除数据库记录
+        # 删除数据库记录（含转码任务）
         deleted_rows = 0
         with get_db() as db:
+            try:
+                db.query(MaterialTranscodeTask).delete()
+            except Exception:
+                pass
             deleted_rows = db.query(Material).delete()
             db.commit()
+
+        # Re-create required folders after clearing (keep server running without restart)
+        for dir_path in [
+            UPLOAD_ROOT,
+            MATERIAL_VIDEO_DIR,
+            MATERIAL_AUDIO_DIR,
+            MATERIAL_IMAGE_DIR,
+            MATERIAL_ORIGINALS_DIR,
+            MATERIAL_ORIGINAL_VIDEO_DIR,
+            MATERIAL_ORIGINAL_AUDIO_DIR,
+        ]:
+            try:
+                os.makedirs(dir_path, exist_ok=True)
+            except Exception:
+                pass
         
         return response_success({
             'deleted_files': deleted_files,
@@ -412,13 +625,22 @@ def delete_material():
                         409
                     )
             
-            # 删除文件
-            abs_path = os.path.join(BASE_DIR, material.path)
+            # 删除转码任务（如有）
             try:
-                if os.path.isfile(abs_path):
-                    os.remove(abs_path)
-            except Exception as e:
-                pass  # 文件删除失败不影响数据库删除
+                db.query(MaterialTranscodeTask).filter(MaterialTranscodeTask.material_id == material_id).delete()
+            except Exception:
+                pass
+
+            # 删除文件（产物 + originals）
+            for rel in [getattr(material, 'path', None), getattr(material, 'original_path', None)]:
+                if not rel:
+                    continue
+                abs_path = os.path.join(BASE_DIR, rel)
+                try:
+                    if os.path.isfile(abs_path):
+                        os.remove(abs_path)
+                except Exception:
+                    pass  # 文件删除失败不影响数据库删除
             
             # 删除数据库记录
             db.delete(material)
