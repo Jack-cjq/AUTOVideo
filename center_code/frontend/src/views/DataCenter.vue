@@ -86,33 +86,85 @@
             </el-card>
 
             <!-- 视频数据列表 -->
-            <el-card shadow="hover" v-if="selectedAccount && videoStatsList.length > 0">
+            <el-card shadow="hover" v-if="selectedAccount">
               <template #header>
                 <div class="card-header">
                   <h4>{{ selectedAccount.account_name }} 视频数据</h4>
+                  <div class="header-actions">
+                    <el-button 
+                      v-if="selectedAccount.platform === 'douyin'" 
+                      type="primary" 
+                      :icon="fetchingData ? 'Loading' : 'Refresh'"
+                      :loading="fetchingData"
+                      size="small"
+                      @click="fetchDataFromDouyin"
+                    >
+                      {{ fetchingData ? '获取中...' : '从抖音获取数据' }}
+                    </el-button>
+                  </div>
                 </div>
               </template>
-              <el-table :data="videoStatsList" style="width: 100%" stripe>
-                <el-table-column prop="video_title" label="视频标题" min-width="200" show-overflow-tooltip />
+              <el-table 
+                :data="videoStatsList" 
+                style="width: 100%" 
+                stripe
+                v-loading="videoStatsLoading"
+                empty-text="暂无视频数据"
+              >
+                <el-table-column prop="video_title" label="视频标题" min-width="200" show-overflow-tooltip>
+                  <template #default="scope">
+                    {{ scope.row.video_title || scope.row.title || '未命名' }}
+                  </template>
+                </el-table-column>
                 <el-table-column prop="publish_time" label="发布时间" width="180" align="center" sortable>
                   <template #default="scope">
                     {{ 
-                      scope.row.status === 'completed' && scope.row.completed_at 
-                        ? formatDate(scope.row.completed_at) 
-                        : scope.row.created_at 
-                        ? formatDate(scope.row.created_at) 
-                        : '-' 
+                      scope.row.publish_time 
+                        ? formatDate(scope.row.publish_time) 
+                        : (scope.row.status === 'completed' && scope.row.completed_at 
+                          ? formatDate(scope.row.completed_at) 
+                          : (scope.row.created_at 
+                            ? formatDate(scope.row.created_at) 
+                            : '-'))
                     }}
                   </template>
                 </el-table-column>
-                <el-table-column prop="playbacks" label="播放量" width="120" align="center" sortable />
-                <el-table-column prop="likes" label="点赞数" width="120" align="center" sortable />
-                <el-table-column prop="comments" label="评论数" width="120" align="center" sortable />
-                <el-table-column prop="shares" label="分享数" width="120" align="center" sortable />
+                <el-table-column prop="playbacks" label="播放量" width="120" align="center" sortable>
+                  <template #default="scope">
+                    <span class="stat-number">{{ formatNumber(scope.row.playbacks || 0) }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="likes" label="点赞数" width="120" align="center" sortable>
+                  <template #default="scope">
+                    <span class="stat-number">{{ formatNumber(scope.row.likes || 0) }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="comments" label="评论数" width="120" align="center" sortable>
+                  <template #default="scope">
+                    <span class="stat-number">{{ formatNumber(scope.row.comments || 0) }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="shares" label="分享数" width="120" align="center" sortable>
+                  <template #default="scope">
+                    <span class="stat-number">{{ formatNumber(scope.row.shares || 0) }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="操作" width="100" align="center" v-if="selectedAccount.platform === 'douyin'">
+                  <template #default="scope">
+                    <el-button 
+                      v-if="scope.row.video_url" 
+                      type="text" 
+                      size="small"
+                      @click="openVideoUrl(scope.row.video_url)"
+                    >
+                      查看
+                    </el-button>
+                  </template>
+                </el-table-column>
               </el-table>
               
               <!-- 分页组件 -->
-              <div class="pagination-container">
+              <div class="pagination-container" v-if="totalVideos > 0">
                 <el-pagination
                   v-model:current-page="currentPage"
                   v-model:page-size="pageSize"
@@ -128,10 +180,22 @@
           </div>
           
           <!-- 数据加载中提示 -->
-          <el-empty v-if="selectedAccount && !selectedAccountLoading && Object.keys(selectedAccountStats).length === 0 && videoStatsList.length === 0" description="暂无数据" />
+          <el-empty 
+            v-if="selectedAccount && !selectedAccountLoading && !videoStatsLoading && !fetchingData && Object.keys(selectedAccountStats).length === 0 && videoStatsList.length === 0" 
+            description="暂无数据"
+          >
+            <el-button 
+              v-if="selectedAccount && selectedAccount.platform === 'douyin'"
+              type="primary" 
+              @click="fetchDataFromDouyin"
+              style="margin-top: 20px;"
+            >
+              从抖音获取数据
+            </el-button>
+          </el-empty>
           
           <!-- 未选择账号提示 -->
-          <el-empty v-else-if="!selectedAccount" description="请从左侧选择一个账号查看详情" />
+          <el-empty v-else-if="!selectedAccount && !selectedAccountLoading" description="请从左侧选择一个账号查看详情" />
         </div>
       </div>
     </el-card>
@@ -140,14 +204,15 @@
 
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue'
-import { ElMessage } from 'element-plus'
-import { getVideoStats, getAccountRanking, getAccountVideos } from '../api/dataCenter'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { getVideoStats, getAccountRanking, getAccountVideos, fetchVideoDataFromDouyin } from '../api/dataCenter'
 import api from '../api'
 
 const loading = ref(false)
 const accountLoading = ref(false)
 const videoStatsLoading = ref(false)
 const selectedAccountLoading = ref(false) // 用于管理当前选中账号数据的加载状态
+const fetchingData = ref(false) // 是否正在从抖音获取数据
 const stats = ref({})
 const accounts = ref([])
 const dateRange = ref([])
@@ -281,8 +346,9 @@ const handleAccountClick = async (account) => {
 }
 
 // 加载账号数据和视频数据
-const loadAccountData = async (account) => {
+const loadAccountData = async (account, useDouyinData = false) => {
   selectedAccountLoading.value = true
+  videoStatsLoading.value = true
   try {
     // 再次确保所有相关数据已重置
     selectedAccountStats.value = {}
@@ -308,15 +374,21 @@ const loadAccountData = async (account) => {
       }
     }
     
-    // 获取视频列表数据（带分页）
-    const videosResponse = await getAccountVideos({
-      account_id: account.id,
-      page: currentPage.value,
-      page_size: pageSize.value
-    })
-    if (videosResponse.code === 200) {
-      videoStatsList.value = videosResponse.data.videos || []
-      totalVideos.value = videosResponse.data.total || 0
+    // 如果使用抖音数据，则从抖音获取
+    if (useDouyinData && account.platform === 'douyin') {
+      await fetchDataFromDouyin(account, false)
+    } else {
+      // 获取视频列表数据（带分页）
+      const videosResponse = await getAccountVideos({
+        account_id: account.id,
+        page: currentPage.value,
+        page_size: pageSize.value,
+        platform: account.platform
+      })
+      if (videosResponse.code === 200) {
+        videoStatsList.value = videosResponse.data.videos || []
+        totalVideos.value = videosResponse.data.total || 0
+      }
     }
   } catch (error) {
     console.error('加载账号数据失败:', error)
@@ -327,6 +399,98 @@ const loadAccountData = async (account) => {
     videoStatsList.value = []
   } finally {
     selectedAccountLoading.value = false
+    videoStatsLoading.value = false
+  }
+}
+
+// 从抖音获取视频详细数据
+const fetchDataFromDouyin = async (account = null, showConfirm = true) => {
+  const targetAccount = account || selectedAccount.value
+  if (!targetAccount || targetAccount.platform !== 'douyin') {
+    ElMessage.warning('请选择抖音账号')
+    return
+  }
+  
+  if (showConfirm) {
+    try {
+      await ElMessageBox.confirm(
+        '将从抖音创作者中心获取最新的视频数据（播放量、点赞数、评论数、分享数等），可能需要一些时间，是否继续？',
+        '提示',
+        {
+          confirmButtonText: '确定',
+          cancelButtonText: '取消',
+          type: 'info'
+        }
+      )
+    } catch {
+      return // 用户取消
+    }
+  }
+  
+  fetchingData.value = true
+  videoStatsLoading.value = true
+  
+  try {
+    const response = await fetchVideoDataFromDouyin({
+      account_id: targetAccount.id,
+      max_videos: 100
+    })
+    
+    if (response.code === 200) {
+      const videos = response.data.videos || []
+      
+      if (videos.length === 0) {
+        ElMessage.warning('未获取到视频数据，可能是 cookies 已失效或账号暂无视频')
+        return
+      }
+      
+      // 转换数据格式以匹配表格显示
+      videoStatsList.value = videos.map(video => ({
+        id: video.video_id || Math.random(),
+        video_title: video.title || '未命名',
+        title: video.title || '未命名',
+        publish_time: video.publish_time,
+        playbacks: video.playbacks || 0,
+        likes: video.likes || 0,
+        comments: video.comments || 0,
+        shares: video.shares || 0,
+        video_url: video.video_url || '',
+        status: 'completed',
+        completed_at: video.publish_time,
+        created_at: video.publish_time
+      }))
+      
+      totalVideos.value = videos.length
+      currentPage.value = 1 // 重置到第一页
+      
+      ElMessage.success(`成功获取 ${videos.length} 个视频的数据`)
+    } else {
+      ElMessage.error(response.message || '获取视频数据失败')
+    }
+  } catch (error) {
+    console.error('获取视频数据失败:', error)
+    ElMessage.error(error.response?.data?.message || error.message || '获取视频数据失败，请检查 cookies 是否有效')
+  } finally {
+    fetchingData.value = false
+    videoStatsLoading.value = false
+  }
+}
+
+// 格式化数字（添加千分位）
+const formatNumber = (num) => {
+  if (num === 0 || !num) return '0'
+  if (num >= 10000) {
+    return (num / 10000).toFixed(1) + '万'
+  }
+  return num.toLocaleString('zh-CN')
+}
+
+// 打开视频链接
+const openVideoUrl = (url) => {
+  if (url) {
+    window.open(url, '_blank')
+  } else {
+    ElMessage.warning('视频链接不存在')
   }
 }
 
@@ -368,6 +532,12 @@ onMounted(() => {
 .card-header {
   display: flex;
   justify-content: space-between;
+  align-items: center;
+}
+
+.header-actions {
+  display: flex;
+  gap: 10px;
   align-items: center;
 }
 
@@ -433,6 +603,11 @@ onMounted(() => {
 
 .text-danger {
   color: #f56c6c;
+}
+
+.stat-number {
+  font-weight: 500;
+  color: #409eff;
 }
 
 /* 响应式布局 */

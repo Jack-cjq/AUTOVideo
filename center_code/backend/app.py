@@ -563,13 +563,16 @@ if __name__ == '__main__':
     # 初始化数据库
     init_db()
     
-    # 从环境变量或命令行参数获取端口，默认8080
-    port = int(os.getenv('PORT', 8080))
+    # 从config.py获取默认端口（已从环境变量读取）
+    from config import SERVER_PORT
+    port = SERVER_PORT
+    
+    # 命令行参数优先级最高（用于临时覆盖）
     if len(sys.argv) > 1:
         try:
             port = int(sys.argv[1])
         except ValueError:
-            print(f"警告: 无效的端口号 '{sys.argv[1]}', 使用默认端口 {port}")
+            print(f"警告: 无效的端口号 '{sys.argv[1]}', 使用配置的端口 {port}")
     
     # 检查端口是否可用
     original_port = port

@@ -15,7 +15,7 @@ from typing import Optional
 from flask import Blueprint, request, send_from_directory
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from utils import response_success, response_error, login_required
+from utils import response_success, response_error, login_required, get_current_user_id
 from models import Material, VideoEditTask, VideoLibrary
 from db import get_db
 from utils.video_editor import video_editor, get_abs_path
@@ -129,6 +129,42 @@ def _resolve_ffmpeg_exe() -> str:
     raise RuntimeError("未找到 FFmpeg，可在系统 PATH 安装或设置 FFMPEG_PATH")
 
 
+def _calculate_output_dimensions(resolution: str, ratio: str) -> tuple[int, int]:
+    """
+    根据分辨率和比例计算输出视频的宽高
+    
+    Args:
+        resolution: 'auto', '1080p', '720p'
+        ratio: 'auto', '16:9', '9:16', '1:1'
+    
+    Returns:
+        (width, height) 元组
+    """
+    # 解析分辨率
+    if resolution == '1080p':
+        base_height = 1080
+    elif resolution == '720p':
+        base_height = 720
+    else:  # 'auto' 或其他，默认使用 1080p
+        base_height = 1080
+    
+    # 解析比例
+    if ratio == '16:9':
+        width = int(base_height * 16 / 9)
+        height = base_height
+    elif ratio == '9:16':
+        width = base_height
+        height = int(base_height * 16 / 9)
+    elif ratio == '1:1':
+        width = base_height
+        height = base_height
+    else:  # 'auto' 或其他，默认使用 9:16（竖屏）
+        width = base_height
+        height = int(base_height * 16 / 9)
+    
+    return (width, height)
+
+
 def _make_image_segment(
     *,
     image_path: str,
@@ -190,9 +226,14 @@ def _validate_image_duration_seconds(duration: float) -> float:
     return float(duration)
 
 
-def _build_segments_from_request(data: dict) -> tuple[list, list, list, list, Optional[str]]:
+def _build_segments_from_request(data: dict, target_width: int = 1080, target_height: int = 1920) -> tuple[list, list, list, list, Optional[str]]:
     """
-    Returns: (segment_paths, legacy_video_ids, normalized_clips, temp_files)
+    Returns: (segment_paths, legacy_video_ids, normalized_clips, temp_files, temp_dir)
+    
+    Args:
+        data: 请求数据字典
+        target_width: 目标宽度（用于图片片段）
+        target_height: 目标高度（用于图片片段）
     """
     clips = data.get("clips")
     video_ids = data.get("video_ids") if clips is None else None
@@ -278,7 +319,13 @@ def _build_segments_from_request(data: dict) -> tuple[list, list, list, list, Op
                     os.makedirs(temp_dir, exist_ok=True)
                 out_path = os.path.join(temp_dir, f"img_{uuid.uuid4().hex}.mp4")
                 total_seconds += float(c.get("duration") or 0.0)
-                _make_image_segment(image_path=abs_path, duration=float(c["duration"]), out_path=out_path)
+                _make_image_segment(
+                    image_path=abs_path,
+                    duration=float(c["duration"]),
+                    out_path=out_path,
+                    width=target_width,
+                    height=target_height
+                )
                 segment_paths.append(out_path)
                 temp_files.append(out_path)
             else:
@@ -364,6 +411,8 @@ def _run_edit_task(
     temp_files: Optional[list] = None,
     temp_dir: Optional[str] = None,
     is_mixed_clips: bool = False,
+    target_width: int = 1080,
+    target_height: int = 1920,
 ):
     """在后台线程中执行剪辑任务"""
     try:
@@ -405,6 +454,8 @@ def _run_edit_task(
                     bgm_volume,
                     voice_volume,
                     output_name,
+                    target_width=target_width,
+                    target_height=target_height,
                 )
             else:
                 output_path = video_editor.edit(
@@ -465,17 +516,39 @@ def _run_edit_task(
                 video_library_id = None
                 try:
                     video_name = output_filename.replace('.mp4', '').replace('output_', 'AI剪辑_')
-                    video_library = VideoLibrary(
-                        video_name=video_name,
-                        video_url=cos_url or preview_url,  # 优先使用COS URL
-                        video_size=os.path.getsize(output_path),
-                        platform='output',  # 标记为成品
-                        description=f'AI剪辑生成，任务ID: {task_id}'
-                    )
-                    db.add(video_library)
-                    db.flush()
-                    video_library_id = video_library.id
-                    logger.info(f"Task {task_id}: 已保存到视频库，ID: {video_library_id}")
+                    # 从任务中获取user_id，确保数据隔离
+                    user_id = task.user_id if hasattr(task, 'user_id') and task.user_id else None
+                    
+                    # 如果任务没有user_id，尝试从当前会话获取（备用方案）
+                    if not user_id:
+                        try:
+                            user_id = get_current_user_id()
+                            if user_id:
+                                logger.info(f"Task {task_id}: 任务缺少user_id，从当前会话获取: {user_id}")
+                                # 更新任务的user_id（如果可能）
+                                try:
+                                    task.user_id = user_id
+                                    db.commit()
+                                except Exception:
+                                    pass
+                        except Exception:
+                            pass
+                    
+                    if not user_id:
+                        logger.error(f"Task {task_id}: 无法获取user_id，无法保存到视频库")
+                    else:
+                        video_library = VideoLibrary(
+                            user_id=user_id,  # 关联任务所属用户
+                            video_name=video_name,
+                            video_url=cos_url or preview_url,  # 优先使用COS URL
+                            video_size=os.path.getsize(output_path),
+                            platform='output',  # 标记为成品
+                            description=f'AI剪辑生成，任务ID: {task_id}'
+                        )
+                        db.add(video_library)
+                        db.flush()
+                        video_library_id = video_library.id
+                        logger.info(f"Task {task_id}: 已保存到视频库，ID: {video_library_id}, user_id: {user_id}")
                 except Exception as lib_error:
                     logger.exception(f"Task {task_id}: 保存到视频库失败: {lib_error}")
                 
@@ -687,9 +760,15 @@ def edit_video():
             else:
                 output_name = None
 
+            # 获取当前用户ID，确保数据隔离
+            user_id = get_current_user_id()
+            if not user_id:
+                return response_error('请先登录', 401)
+            
             # 创建任务记录
             video_ids_str = json.dumps({"clips": normalized_clips}, ensure_ascii=False) if clips is not None else ",".join(map(str, video_ids))
             task = VideoEditTask(
+                user_id=user_id,  # 关联当前用户
                 video_ids=video_ids_str,
                 voice_id=voice_id,
                 bgm_id=bgm_id,
@@ -746,17 +825,39 @@ def edit_video():
                     video_library_id = None
                     try:
                         video_name = output_filename.replace('.mp4', '').replace('output_', 'AI剪辑_')
-                        video_library = VideoLibrary(
-                            video_name=video_name,
-                            video_url=cos_url or preview_url,  # 优先使用COS URL
-                            video_size=os.path.getsize(output_path),
-                            platform='output',  # 标记为成品
-                            description=f'AI剪辑生成，任务ID: {task_id}'
-                        )
-                        db.add(video_library)
-                        db.flush()
-                        video_library_id = video_library.id
-                        print(f"[Editor] 已保存到视频库，ID: {video_library_id}")
+                        # 从任务中获取user_id
+                        user_id = task.user_id if hasattr(task, 'user_id') and task.user_id else None
+                        
+                        # 如果任务没有user_id，尝试从当前会话获取（备用方案）
+                        if not user_id:
+                            try:
+                                user_id = get_current_user_id()
+                                if user_id:
+                                    print(f"[Editor] 任务缺少user_id，从当前会话获取: {user_id}")
+                                    # 更新任务的user_id（如果可能）
+                                    try:
+                                        task.user_id = user_id
+                                        db.commit()
+                                    except Exception:
+                                        pass
+                            except Exception:
+                                pass
+                        
+                        if not user_id:
+                            print(f"[Editor] 无法获取user_id，无法保存到视频库")
+                        else:
+                            video_library = VideoLibrary(
+                                user_id=user_id,  # 关联任务所属用户
+                                video_name=video_name,
+                                video_url=cos_url or preview_url,  # 优先使用COS URL
+                                video_size=os.path.getsize(output_path),
+                                platform='output',  # 标记为成品
+                                description=f'AI剪辑生成，任务ID: {task_id}'
+                            )
+                            db.add(video_library)
+                            db.flush()
+                            video_library_id = video_library.id
+                            print(f"[Editor] 已保存到视频库，ID: {video_library_id}, user_id: {user_id}")
                     except Exception as lib_error:
                         print(f"[Editor] 保存到视频库失败: {lib_error}")
                         import traceback
@@ -863,6 +964,12 @@ def edit_video_async():
             voice_volume = float(data.get("voice_volume", 1.0))
         except Exception:
             voice_volume = 1.0
+        
+        # 获取分辨率和比例参数
+        resolution = data.get("resolution", "auto")
+        ratio = data.get("ratio", "auto")
+        target_width, target_height = _calculate_output_dimensions(resolution, ratio)
+        logger.info(f"视频输出尺寸: {target_width}x{target_height} (resolution={resolution}, ratio={ratio})")
 
         _cleanup_old_segment_dirs()
 
@@ -892,7 +999,9 @@ def edit_video_async():
         # 新协议：clips 优先（支持 video/image 混排）
         if clips is not None:
             try:
-                segment_paths, legacy_video_ids, normalized_clips, temp_files, temp_dir = _build_segments_from_request(data)
+                segment_paths, legacy_video_ids, normalized_clips, temp_files, temp_dir = _build_segments_from_request(
+                    data, target_width=target_width, target_height=target_height
+                )
             except Exception as ex:
                 return response_error(str(ex), 400)
 
@@ -974,8 +1083,14 @@ def edit_video_async():
                 timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
                 output_name = "_".join(name_parts) + "_" + timestamp + ".mp4" if name_parts else None
 
+                # 获取当前用户ID，确保数据隔离
+                user_id = get_current_user_id()
+                if not user_id:
+                    return response_error('请先登录', 401)
+
                 video_ids_str = json.dumps({"clips": normalized_clips}, ensure_ascii=False)
                 task = VideoEditTask(
+                    user_id=user_id,  # 关联当前用户
                     video_ids=video_ids_str,
                     voice_id=voice_id,
                     bgm_id=bgm_id,
@@ -1012,6 +1127,8 @@ def edit_video_async():
                     temp_files,
                     temp_dir,
                     (any(c.get("type") == "image" for c in normalized_clips) and any(c.get("type") == "video" for c in normalized_clips)),
+                    target_width,
+                    target_height,
                 ),
                 daemon=True,
             )
@@ -1153,9 +1270,15 @@ def edit_video_async():
             
             logger.info(f"生成的输出文件名: {output_name}")
 
+            # 获取当前用户ID，确保数据隔离
+            user_id = get_current_user_id()
+            if not user_id:
+                return response_error('请先登录', 401)
+            
             # 创建任务记录
             video_ids_str = ",".join(map(str, video_ids))
             task = VideoEditTask(
+                user_id=user_id,  # 关联当前用户
                 video_ids=video_ids_str,
                 voice_id=voice_id,
                 bgm_id=bgm_id,
@@ -1386,7 +1509,7 @@ def delete_task(task_id: int):
 @login_required
 def list_outputs():
     """
-    获取成品列表接口（直接从COS获取视频列表）
+    获取成品列表接口（根据user_id从数据库和COS获取视频列表）
     
     请求方法: GET
     路径: /api/outputs
@@ -1416,74 +1539,155 @@ def list_outputs():
         }
     """
     try:
+        # 获取当前用户ID，确保数据隔离
+        user_id = get_current_user_id()
+        if not user_id:
+            return response_error('请先登录', 401)
+        
         source = request.args.get("source", "cos")  # 默认从COS获取
         
         if source == "cos":
-            # 直接从COS获取视频列表
-            logger.info("从COS获取成品视频列表")
+            # 先从COS获取所有视频，然后根据数据库记录过滤
+            logger.info(f"从COS获取用户 {user_id} 的成品视频列表")
             try:
+                # 从COS获取所有视频
                 cos_result = list_objects_from_cos(prefix='video/', max_keys=1000)
                 
                 if not cos_result['success']:
                     logger.warning(f"从COS获取视频列表失败: {cos_result['message']}")
-                    # 如果COS获取失败（可能是权限问题），自动回退到数据库
-                    logger.info("自动回退到数据库获取成品列表")
-                    return _list_outputs_from_db()
+                    # 如果COS获取失败，使用数据库中的URL
+                    logger.info("使用数据库中的URL")
+                    return _list_outputs_from_db(user_id)
+                
+                # 从数据库查询该用户的成品视频记录（用于匹配和获取元数据）
+                with get_db() as db:
+                    user_videos = db.query(VideoLibrary).filter(
+                        VideoLibrary.user_id == user_id,
+                        VideoLibrary.platform == 'output'
+                    ).order_by(VideoLibrary.created_at.desc()).limit(500).all()
+                
+                # 创建数据库记录映射：key为COS key，value为VideoLibrary记录
+                db_video_map = {}
+                for video in user_videos:
+                    if video.video_url:
+                        from blueprints.video_library import _extract_cos_key_from_url
+                        cos_key = _extract_cos_key_from_url(video.video_url)
+                        if cos_key:
+                            db_video_map[cos_key] = video
+                        else:
+                            # 如果无法提取COS key，尝试通过文件名匹配
+                            filename = os.path.basename(video.video_url)
+                            db_video_map[filename] = video
+                
+                items = []
+                for obj in cos_result['objects']:
+                    try:
+                        cos_key = obj['key']
+                        filename = obj['filename']
+                        
+                        # 查找对应的数据库记录
+                        db_video = db_video_map.get(cos_key) or db_video_map.get(filename)
+                        
+                        if db_video:
+                            # 如果数据库中有记录且user_id匹配，使用数据库的元数据
+                            video_name = db_video.video_name or filename.replace('.mp4', '').replace('output_', 'AI剪辑_')
+                            video_size = db_video.video_size or obj['size']
+                            
+                            # 处理时间格式
+                            update_time_str = ""
+                            if db_video.created_at:
+                                if isinstance(db_video.created_at, datetime.datetime):
+                                    update_time_str = db_video.created_at.strftime("%Y-%m-%d %H:%M:%S")
+                                else:
+                                    update_time_str = str(db_video.created_at)
+                            
+                            # 从description中解析任务ID
+                            task_id = None
+                            if db_video.description:
+                                import re
+                                match = re.search(r'任务ID:\s*(\d+)', db_video.description)
+                                if match:
+                                    task_id = int(match.group(1))
+                            
+                            # 获取缩略图URL（如果有）
+                            thumbnail_url = None
+                            if db_video.thumbnail_url:
+                                # 刷新COS URL（如果是COS URL）
+                                from blueprints.video_library import _refresh_cos_url_if_needed
+                                thumbnail_url = _refresh_cos_url_if_needed(db_video.thumbnail_url)
+                            
+                            items.append({
+                                "id": db_video.id,
+                                "filename": filename,
+                                "video_name": video_name,
+                                "size": video_size,
+                                "update_time": update_time_str,
+                                "preview_url": obj['url'],
+                                "video_url": obj['url'],
+                                "download_url": obj['url'],
+                                "thumbnail_url": thumbnail_url,  # 添加缩略图URL
+                                "task_id": task_id,
+                                "cos_key": cos_key
+                            })
+                        else:
+                            # 如果数据库中没有记录，也返回（可能是新上传的，但无法确定user_id）
+                            # 为了安全，这里可以选择不返回，或者返回但标记为未关联
+                            # 暂时返回，让前端显示，但ID使用索引
+                            video_name = filename.replace('.mp4', '').replace('output_', 'AI剪辑_')
+                            items.append({
+                                "id": len(items) + 10000,  # 使用大数字避免与数据库ID冲突
+                                "filename": filename,
+                                "video_name": video_name,
+                                "size": obj['size'],
+                                "update_time": obj['last_modified'] if obj['last_modified'] else "",
+                                "preview_url": obj['url'],
+                                "video_url": obj['url'],
+                                "download_url": obj['url'],
+                                "thumbnail_url": None,  # 数据库中没有记录，无法获取缩略图
+                                "task_id": None,
+                                "cos_key": cos_key
+                            })
+                    except Exception as e:
+                        logger.warning(f"处理COS对象 {obj.get('key', 'unknown')} 时出错：{e}")
+                        continue
+                
+                # 按更新时间排序（最新的在前）
+                try:
+                    items.sort(key=lambda x: x.get("update_time") or "", reverse=True)
+                except Exception as sort_error:
+                    logger.warning(f"排序时出错：{sort_error}")
+                
+                logger.info(f"用户 {user_id} 从COS获取到 {len(items)} 个成品视频（其中 {len([i for i in items if i['id'] < 10000])} 个有数据库记录）")
+                return response_success(items, "获取成品列表成功")
             except Exception as cos_ex:
                 logger.exception(f"从COS获取视频列表时发生异常: {cos_ex}")
                 # 发生异常时，自动回退到数据库
                 logger.info("发生异常，自动回退到数据库获取成品列表")
-                return _list_outputs_from_db()
-            
-            items = []
-            for idx, obj in enumerate(cos_result['objects']):
-                # 从COS key中提取文件名
-                filename = obj['filename']
-                # 从文件名生成视频名称（去掉扩展名，替换output_为AI剪辑_）
-                video_name = filename.replace('.mp4', '').replace('output_', 'AI剪辑_')
-                
-                # 解析任务ID（如果description中有）
-                task_id = None
-                # 可以从文件名或路径中尝试解析任务ID，这里暂时留空
-                
-                items.append({
-                    "id": idx + 1,  # 使用索引作为ID
-                    "filename": filename,
-                    "video_name": video_name,
-                    "size": obj['size'],
-                    "update_time": obj['last_modified'] if obj['last_modified'] else "",
-                    "preview_url": obj['url'],
-                    "video_url": obj['url'],
-                    "download_url": obj['url'],
-                    "task_id": task_id,
-                    "cos_key": obj['key']  # 添加COS key，便于后续操作
-                })
-            
-            # 按更新时间排序（最新的在前）
-            try:
-                items.sort(key=lambda x: x.get("update_time") or "", reverse=True)
-            except Exception as sort_error:
-                logger.warning(f"排序时出错：{sort_error}")
-            
-            logger.info(f"从COS获取到 {len(items)} 个成品视频")
-            return response_success(items, "获取成品列表成功")
+                return _list_outputs_from_db(user_id)
         else:
             # 从数据库获取
-            return _list_outputs_from_db()
+            return _list_outputs_from_db(user_id)
     
     except Exception as e:
         logger.exception("List outputs failed")
         return response_error(f"获取成品列表失败：{str(e)}", 500)
 
 
-def _list_outputs_from_db():
+def _list_outputs_from_db(user_id=None):
     """从数据库获取成品列表（备用方案）"""
     try:
         items = []
         
-        # 从VideoLibrary表读取成品（platform='output'）
+        # 获取当前用户ID（如果未提供）
+        if not user_id:
+            user_id = get_current_user_id()
+            if not user_id:
+                return response_error('请先登录', 401)
+        
+        # 从VideoLibrary表读取成品（platform='output'），根据user_id过滤
         with get_db() as db:
             videos = db.query(VideoLibrary).filter(
+                VideoLibrary.user_id == user_id,
                 VideoLibrary.platform == 'output'
             ).order_by(VideoLibrary.created_at.desc()).limit(200).all()
             
@@ -1511,15 +1715,28 @@ def _list_outputs_from_db():
                         if match:
                             task_id = int(match.group(1))
                     
+                    # 刷新COS URL（如果是COS URL）
+                    video_url = video.video_url or ''
+                    thumbnail_url = None
+                    if video.thumbnail_url:
+                        from blueprints.video_library import _refresh_cos_url_if_needed
+                        thumbnail_url = _refresh_cos_url_if_needed(video.thumbnail_url)
+                    
+                    # 刷新视频URL
+                    if video_url:
+                        from blueprints.video_library import _refresh_cos_url_if_needed
+                        video_url = _refresh_cos_url_if_needed(video_url)
+                    
                     items.append({
                         "id": video.id,
                         "filename": filename,
                         "video_name": video.video_name,
                         "size": video.video_size or 0,
                         "update_time": update_time_str,
-                        "preview_url": video.video_url or '',
-                        "video_url": video.video_url or '',
-                        "download_url": video.video_url or f"/api/download/video/{filename}",
+                        "preview_url": video_url,
+                        "video_url": video_url,
+                        "download_url": video_url or f"/api/download/video/{filename}",
+                        "thumbnail_url": thumbnail_url,  # 添加缩略图URL
                         "task_id": task_id
                     })
                 except Exception as e:

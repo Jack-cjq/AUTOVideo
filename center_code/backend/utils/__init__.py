@@ -29,6 +29,7 @@ try:
         response_error = backend_utils.response_error
         login_required = backend_utils.login_required
         has_valid_token = backend_utils.has_valid_token
+        get_current_user_id = backend_utils.get_current_user_id
         create_access_token = backend_utils.create_access_token
         decode_access_token = backend_utils.decode_access_token
         model_to_dict = backend_utils.model_to_dict
@@ -50,6 +51,9 @@ except Exception as e:
 
     def has_valid_token():
         return False
+
+    def get_current_user_id():
+        return None
 
     def create_access_token(user_id, username, email):
         return ''

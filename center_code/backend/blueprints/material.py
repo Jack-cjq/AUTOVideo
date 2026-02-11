@@ -407,12 +407,12 @@ def get_materials():
             materials_list = []
             for mat in materials:
                 # 确保 type 字段是小写，统一格式
-                material_type = (mat.type or '').lower() if mat.type else None
+                mat_type = (mat.type or '').lower() if mat.type else None
                 materials_list.append({
                     'id': mat.id,
                     'name': mat.name,
                     'path': mat.path or '',
-                    'type': material_type,  # 统一转换为小写
+                    'type': mat_type,  # 统一转换为小写
                     'status': getattr(mat, 'status', None) or 'ready',
                     'original_path': getattr(mat, 'original_path', None),
                     'meta_json': getattr(mat, 'meta_json', None),
@@ -427,7 +427,23 @@ def get_materials():
         return response_success(materials_list, '获取素材列表成功')
     
     except Exception as e:
-        return response_error(str(e), 500)
+        import traceback
+        error_msg = str(e)
+        error_type = type(e).__name__
+        # 打印详细错误信息到控制台
+        print(f"\n{'='*60}")
+        print(f"❌ 获取素材列表失败")
+        print(f"错误类型: {error_type}")
+        print(f"错误信息: {error_msg}")
+        print(f"{'='*60}")
+        traceback.print_exc()
+        print(f"{'='*60}\n")
+        # 返回错误信息（开发环境返回详细错误，生产环境返回通用错误）
+        is_production = os.getenv('FLASK_ENV') == 'production' or os.getenv('ENVIRONMENT') == 'production'
+        if is_production:
+            return response_error('获取素材列表失败，请稍后重试', 500)
+        else:
+            return response_error(f'获取素材列表失败: {error_type}: {error_msg}', 500)
 
 
 @material_bp.route('/materials/clear', methods=['POST'])

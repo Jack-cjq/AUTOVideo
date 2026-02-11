@@ -459,6 +459,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Clock, VideoPlay, Promotion, UploadFilled, Warning, Check } from '@element-plus/icons-vue'
 import api from '../api'
 import { getVideos } from '../api/videoLibrary'
+import { getOutputs } from '../api/material'
 
 const form = ref({
   video_id: null,
@@ -615,12 +616,55 @@ const loadAccounts = async () => {
 
 const loadVideoLibrary = async () => {
   try {
-    const response = await getVideos({ limit: 100 })
+    // 从腾讯云COS获取成品视频列表
+    const response = await getOutputs()
     if (response.code === 200) {
-      videoLibrary.value = response.data.videos || []
+      // 转换数据格式以匹配现有的视频库格式
+      const outputs = response.data || []
+      videoLibrary.value = outputs.map(output => ({
+        id: output.id || output.cos_key || Math.random(),
+        video_name: output.video_name || output.filename || '未命名',
+        video_url: output.video_url || output.preview_url || output.download_url || '',
+        // 只使用真正的缩略图URL，不要用视频URL作为缩略图（会导致加载失败）
+        thumbnail_url: output.thumbnail_url || null,
+        video_size: output.size || 0,
+        duration: output.duration || 0,
+        platform: output.platform || '',
+        tags: output.tags || '',
+        description: output.description || '',
+        upload_time: output.update_time || output.created_at || '',
+        created_at: output.created_at || output.update_time || '',
+        cos_key: output.cos_key || '', // 保存COS key，便于后续使用
+        filename: output.filename || ''
+      }))
+      
+      ElMessage.success(`成功加载 ${videoLibrary.value.length} 个视频`)
+    } else {
+      ElMessage.warning('从COS获取视频失败，尝试从数据库获取')
+      // 如果COS获取失败，回退到数据库
+      try {
+        const dbResponse = await getVideos({ limit: 100 })
+        if (dbResponse.code === 200) {
+          videoLibrary.value = dbResponse.data.videos || []
+        }
+      } catch (dbError) {
+        console.error('从数据库加载视频库失败:', dbError)
+        ElMessage.error('加载视频库失败')
+      }
     }
   } catch (error) {
     console.error('加载视频库失败:', error)
+    ElMessage.error('加载视频库失败: ' + (error.message || '未知错误'))
+    // 如果COS获取失败，尝试从数据库获取
+    try {
+      const dbResponse = await getVideos({ limit: 100 })
+      if (dbResponse.code === 200) {
+        videoLibrary.value = dbResponse.data.videos || []
+        ElMessage.info('已从数据库加载视频')
+      }
+    } catch (dbError) {
+      console.error('从数据库加载视频库也失败:', dbError)
+    }
   }
 }
 
@@ -770,6 +814,10 @@ const getVideoFileName = (url) => {
 // 获取视频预览URL
 const getVideoPreviewUrl = (url) => {
   if (!url) return ''
+  // 如果已经是完整的URL（http:// 或 https://），直接返回（COS URL通常是完整的）
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    return url
+  }
   // 如果是相对路径（如 /uploads/videos/filename.mp4），添加完整的基础URL
   if (url.startsWith('/')) {
     // 使用后端 API 基础 URL 构建完整的URL
@@ -780,7 +828,7 @@ const getVideoPreviewUrl = (url) => {
     const fullUrl = baseUrl + url
     return fullUrl
   }
-  // 如果已经是完整URL，直接返回
+  // 其他情况直接返回
   return url
 }
 
@@ -873,9 +921,12 @@ const handleThumbnailUploadError = () => {
 }
 
 // 获取封面图片预览URL
-// 获取封面图片预览URL
 const getThumbnailPreviewUrl = (url) => {
   if (!url) return ''
+  // 如果已经是完整的URL（http:// 或 https://），直接返回（COS URL通常是完整的）
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    return url
+  }
   // 如果是相对路径（如 /uploads/thumbnails/filename.jpg），添加完整的基础URL
   if (url.startsWith('/')) {
     // 使用后端 API 基础 URL 构建完整的URL
@@ -884,7 +935,7 @@ const getThumbnailPreviewUrl = (url) => {
     const baseUrl = apiBaseUrl.replace(/\/api\/?$/, '')
     return baseUrl + url
   }
-  // 如果已经是完整URL，直接返回
+  // 其他情况直接返回
   return url
 }
 

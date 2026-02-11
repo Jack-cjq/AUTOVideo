@@ -429,18 +429,111 @@ class DouYinVideo(object):
             await self._human_pause()
             await page.click('text="设置竖封面"')
             await self._human_pause(2)
-            # 定位到上传区域并点击
+            # 定位到上传区域并上传文件
             await page.locator("div[class^='semi-upload upload'] >> input.semi-upload-hidden-input").set_input_files(thumbnail_path)
-            await self._human_pause(2)
-            await page.locator("div#tooltip-container button:visible:has-text('完成')").click()
-            await self._human_pause()
-            # finish_confirm_element = page.locator("div[class^='confirmBtn'] >> div:has-text('完成')")
-            # if await finish_confirm_element.count():
-            #     await finish_confirm_element.click()
-            # await page.locator("div[class^='footer'] button:has-text('完成')").click()
-            douyin_logger.info('  [+] 视频封面设置完成！')
+            douyin_logger.info('  [-] 封面图片已上传，等待处理...')
+            # 等待图片上传和处理完成（等待上传进度消失或预览图出现）
+            try:
+                # 等待上传完成，检查上传进度元素消失或预览图出现
+                await page.wait_for_selector("div[class*='upload'] div[class*='progress']", state='hidden', timeout=10000)
+            except:
+                # 如果进度条不存在，等待一段时间让图片处理完成
+                await self._human_pause(3)
+            
+            # 尝试多种方式定位"完成"按钮
+            douyin_logger.info('  [-] 正在查找并点击完成按钮...')
+            button_clicked = False
+            
+            # 方法1: 尝试通过 tooltip-container 定位
+            try:
+                complete_button = page.locator("div#tooltip-container button:visible:has-text('完成')")
+                if await complete_button.count() > 0:
+                    # 等待按钮变为可点击状态
+                    await complete_button.wait_for(state='visible', timeout=5000)
+                    # 检查按钮是否被禁用
+                    is_disabled = await complete_button.get_attribute('disabled')
+                    if not is_disabled:
+                        await complete_button.click()
+                        button_clicked = True
+                        douyin_logger.info('  [-] 通过 tooltip-container 找到并点击了完成按钮')
+            except Exception as e:
+                douyin_logger.warning(f'  [-] 方法1失败: {e}')
+            
+            # 方法2: 尝试通过 footer 定位
+            if not button_clicked:
+                try:
+                    complete_button = page.locator("div[class*='footer'] button:has-text('完成')")
+                    if await complete_button.count() > 0:
+                        await complete_button.wait_for(state='visible', timeout=5000)
+                        is_disabled = await complete_button.get_attribute('disabled')
+                        if not is_disabled:
+                            await complete_button.click()
+                            button_clicked = True
+                            douyin_logger.info('  [-] 通过 footer 找到并点击了完成按钮')
+                except Exception as e:
+                    douyin_logger.warning(f'  [-] 方法2失败: {e}')
+            
+            # 方法3: 尝试通过 confirmBtn 定位
+            if not button_clicked:
+                try:
+                    complete_button = page.locator("div[class*='confirmBtn'] button:has-text('完成'), div[class*='confirmBtn'] div:has-text('完成')")
+                    if await complete_button.count() > 0:
+                        await complete_button.wait_for(state='visible', timeout=5000)
+                        is_disabled = await complete_button.get_attribute('disabled')
+                        if not is_disabled:
+                            await complete_button.click()
+                            button_clicked = True
+                            douyin_logger.info('  [-] 通过 confirmBtn 找到并点击了完成按钮')
+                except Exception as e:
+                    douyin_logger.warning(f'  [-] 方法3失败: {e}')
+            
+            # 方法4: 尝试通过文本直接定位
+            if not button_clicked:
+                try:
+                    complete_button = page.get_by_role('button', name='完成', exact=False)
+                    if await complete_button.count() > 0:
+                        # 找到在模态框内的完成按钮
+                        modal_button = complete_button.filter(has=page.locator("div.dy-creator-content-modal"))
+                        if await modal_button.count() > 0:
+                            await modal_button.wait_for(state='visible', timeout=5000)
+                            is_disabled = await modal_button.get_attribute('disabled')
+                            if not is_disabled:
+                                await modal_button.click()
+                                button_clicked = True
+                                douyin_logger.info('  [-] 通过文本定位找到并点击了完成按钮')
+                except Exception as e:
+                    douyin_logger.warning(f'  [-] 方法4失败: {e}')
+            
+            # 方法5: 尝试通过键盘回车（如果按钮有焦点）
+            if not button_clicked:
+                try:
+                    # 尝试按回车键（如果完成按钮有焦点）
+                    await page.keyboard.press('Enter')
+                    await self._human_pause(1)
+                    # 检查对话框是否关闭
+                    if await page.locator("div.dy-creator-content-modal").count() == 0:
+                        button_clicked = True
+                        douyin_logger.info('  [-] 通过键盘回车触发了完成操作')
+                except Exception as e:
+                    douyin_logger.warning(f'  [-] 方法5失败: {e}')
+            
+            if not button_clicked:
+                douyin_logger.error('  [-] 无法找到或点击完成按钮，封面可能未应用')
+                # 尝试等待对话框自动关闭（某些情况下可能自动应用）
+                try:
+                    await page.wait_for_selector("div.dy-creator-content-modal", state='hidden', timeout=5000)
+                    douyin_logger.info('  [-] 对话框已自动关闭，封面可能已应用')
+                except:
+                    douyin_logger.warning('  [-] 对话框未自动关闭，封面设置可能失败')
+            else:
+                douyin_logger.info('  [+] 视频封面设置完成！')
+                await self._human_pause()
+            
             # 等待封面设置对话框关闭
-            await page.wait_for_selector("div.extractFooter", state='detached')
+            try:
+                await page.wait_for_selector("div.dy-creator-content-modal", state='hidden', timeout=5000)
+            except:
+                douyin_logger.warning('  [-] 等待对话框关闭超时，但继续执行后续流程')
             
 
     async def set_location(self, page: Page, location: str = ""):

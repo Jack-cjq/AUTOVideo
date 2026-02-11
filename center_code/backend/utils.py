@@ -109,6 +109,42 @@ def has_valid_token():
         return False
 
 
+def get_current_user_id():
+    """
+    获取当前登录用户的ID
+    
+    Returns:
+        int: 用户ID，如果未登录或令牌无效则返回None
+    """
+    auth_header = request.headers.get('Authorization', '')
+    if not auth_header.startswith('Bearer '):
+        return None
+
+    token = auth_header.split(' ', 1)[1].strip()
+    try:
+        payload = decode_access_token(token)
+    except Exception:
+        return None
+
+    user_id = payload.get('sub')
+    if not user_id:
+        return None
+    try:
+        user_id = int(user_id)
+    except ValueError:
+        return None
+
+    # 验证用户是否存在
+    try:
+        with get_db() as db:
+            user = db.query(User).filter(User.id == user_id).first()
+            if not user:
+                return None
+            return user_id
+    except Exception:
+        return None
+
+
 def model_to_dict(model):
     """将SQLAlchemy模型转换为字典"""
     if model is None:

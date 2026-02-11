@@ -195,6 +195,7 @@ class VideoLibrary(Base):
     __tablename__ = 'video_library'
     
     id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)  # 用户ID，用于数据隔离
     video_name = Column(String(255), nullable=False)
     video_url = Column(String(1000), nullable=False)
     thumbnail_url = Column(String(1000))
@@ -251,6 +252,7 @@ class VideoEditTask(Base):
     __tablename__ = 'video_edit_tasks'
     
     id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)  # 用户ID，用于数据隔离
     video_ids = Column(Text, nullable=False)  # 视频ID列表，逗号分隔
     voice_id = Column(Integer, nullable=True)  # 配音音频ID
     bgm_id = Column(Integer, nullable=True)  # BGM音频ID

@@ -1748,7 +1748,9 @@ async function handleGenerate() {
       speed,
       subtitle_path: subtitlePath,
       bgm_volume: bgmVolume,
-      voice_volume: voiceVolume
+      voice_volume: voiceVolume,
+      resolution: editForm.value.resolution || 'auto',
+      ratio: editForm.value.ratio || 'auto'
     })
 
     if (response.code === 200) {

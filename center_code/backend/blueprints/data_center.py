@@ -455,6 +455,7 @@ def get_account_videos():
         platform (string, 可选): 平台类型
         page (int, 可选): 页码，默认1
         page_size (int, 可选): 每页数量，默认10
+        fetch_from_douyin (bool, 可选): 是否从抖音获取最新数据，默认false
     
     返回数据:
         成功 (200):
@@ -494,17 +495,64 @@ def get_account_videos():
         - 返回指定账号的视频列表
         - 支持分页查询
         - 视频数据来源于 VideoTask 表
+        - 如果 fetch_from_douyin=true，会从抖音获取最新数据并更新
     """
     try:
         account_id = request.args.get('account_id', type=int)
         platform = request.args.get('platform')
         page = request.args.get('page', type=int, default=1)
         page_size = request.args.get('page_size', type=int, default=10)
+        fetch_from_douyin = request.args.get('fetch_from_douyin', 'false').lower() == 'true'
         
         if not account_id:
             return response_error('account_id is required', 400)
         
         with get_db() as db:
+            # 如果请求从抖音获取最新数据
+            if fetch_from_douyin and platform == 'douyin':
+                try:
+                    import asyncio
+                    from services.douyin_data_fetcher import fetch_video_data_from_douyin
+                    
+                    # 运行异步函数获取数据
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    douyin_videos = loop.run_until_complete(fetch_video_data_from_douyin(account_id, db))
+                    loop.close()
+                    
+                    # 将获取的数据与数据库中的视频进行匹配和更新
+                    # 这里可以根据视频标题或其他唯一标识进行匹配
+                    # 暂时先返回获取的数据
+                    if douyin_videos:
+                        video_list = []
+                        for idx, dv in enumerate(douyin_videos):
+                            video_data = {
+                                "id": idx + 1,
+                                "video_title": dv.get('title', '未命名'),
+                                "publish_time": dv.get('publish_time'),
+                                "video_url": dv.get('video_url', ''),
+                                "status": "completed",
+                                "created_at": None,
+                                "completed_at": dv.get('publish_time'),
+                                "playbacks": dv.get('playbacks', 0),
+                                "likes": dv.get('likes', 0),
+                                "comments": dv.get('comments', 0),
+                                "shares": dv.get('shares', 0)
+                            }
+                            video_list.append(video_data)
+                        
+                        return response_success({
+                            "videos": video_list,
+                            "total": len(video_list),
+                            "page": 1,
+                            "page_size": len(video_list)
+                        })
+                except Exception as e:
+                    import traceback
+                    traceback.print_exc()
+                    # 如果获取失败，继续使用数据库数据
+                    pass
+            
             query = db.query(VideoTask)
             
             # 过滤条件
@@ -544,5 +592,89 @@ def get_account_videos():
                 "page_size": page_size
             })
     except Exception as e:
+        return response_error(str(e), 500)
+
+
+@data_center_bp.route('/fetch-video-data', methods=['POST'])
+@login_required
+def fetch_video_data():
+    """
+    从抖音获取视频详细数据接口
+    
+    请求方法: POST
+    路径: /api/data-center/fetch-video-data
+    认证: 需要登录
+    
+    请求体 (JSON):
+        {
+            "account_id": int,        # 必填，账号ID
+            "max_videos": int         # 可选，最大获取视频数量，默认100
+        }
+    
+    返回数据:
+        成功 (200):
+        {
+            "code": 200,
+            "message": "success",
+            "data": {
+                "videos": [
+                    {
+                        "video_id": string,
+                        "title": string,
+                        "publish_time": string,
+                        "playbacks": int,
+                        "likes": int,
+                        "comments": int,
+                        "shares": int,
+                        "video_url": string
+                    },
+                    ...
+                ],
+                "count": int
+            }
+        }
+        
+        失败 (400/500):
+        {
+            "code": 400/500,
+            "message": "错误信息",
+            "data": null
+        }
+    
+    说明:
+        - 使用账号的 cookies 从抖音创作者中心获取视频详细数据
+        - 返回的数据包含播放量、点赞数、评论数、分享数等统计信息
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        account_id = data.get('account_id')
+        max_videos = data.get('max_videos', 100)
+        
+        if not account_id:
+            return response_error('account_id is required', 400)
+        
+        import asyncio
+        from services.douyin_data_fetcher import fetch_video_data_from_douyin
+        
+        with get_db() as db:
+            # 运行异步函数获取数据
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                videos = loop.run_until_complete(fetch_video_data_from_douyin(account_id, db, max_videos))
+                loop.close()
+                
+                return response_success({
+                    "videos": videos,
+                    "count": len(videos)
+                })
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                return response_error(f'获取视频数据失败: {str(e)}', 500)
+                
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
         return response_error(str(e), 500)
 

@@ -235,18 +235,39 @@ def submit_publish():
             final_thumbnail_url = thumbnail_url
             
             if video_id:
-                video_lib = db.query(VideoLibrary).filter(VideoLibrary.id == video_id).first()
-                if not video_lib:
-                    return response_error(f'Video library item {video_id} not found', 404)
-                final_video_url = video_lib.video_url
-                if not final_thumbnail_url and video_lib.thumbnail_url:
-                    final_thumbnail_url = video_lib.thumbnail_url
-                # 如果视频库中有标签，可以合并
-                if video_lib.tags and not video_tags:
-                    try:
-                        video_tags = [tag.strip() for tag in video_lib.tags.split(',') if tag.strip()]
-                    except:
-                        pass
+                # 检查是否是临时ID（从COS获取但没有数据库记录的视频，ID >= 10000）
+                # 如果是临时ID，直接使用提供的video_url，不查询数据库
+                if video_id >= 10000:
+                    # 这是从COS获取的临时ID，使用提供的video_url
+                    if not final_video_url:
+                        return response_error(f'Video URL is required for COS video (ID: {video_id}). Please select the video again.', 400)
+                    # 临时ID的视频没有数据库记录，直接使用提供的URL
+                    # 不需要查询数据库
+                else:
+                    # 正常的数据库ID，从视频库查询
+                    video_lib = db.query(VideoLibrary).filter(VideoLibrary.id == video_id).first()
+                    if not video_lib:
+                        # 如果查询不到，但有video_url，使用video_url（兼容处理）
+                        if not final_video_url:
+                            return response_error(f'Video library item {video_id} not found and video_url is missing', 404)
+                        # 有video_url，继续使用（可能是从COS获取的视频，但数据库记录丢失）
+                    else:
+                        # 找到了数据库记录，使用数据库中的URL（如果提供了video_url，优先使用提供的，因为可能是更新的COS URL）
+                        if not final_video_url:
+                            final_video_url = video_lib.video_url
+                        # 如果提供了video_url，使用提供的（可能是更新的COS预签名URL）
+                        if not final_thumbnail_url and video_lib.thumbnail_url:
+                            final_thumbnail_url = video_lib.thumbnail_url
+                        # 如果视频库中有标签，可以合并
+                        if video_lib.tags and not video_tags:
+                            try:
+                                video_tags = [tag.strip() for tag in video_lib.tags.split(',') if tag.strip()]
+                            except:
+                                pass
+            
+            # 确保最终有video_url
+            if not final_video_url:
+                return response_error('Video URL is required', 400)
             
             # 2. 验证所有账号是否存在，并获取账号信息
             accounts = []

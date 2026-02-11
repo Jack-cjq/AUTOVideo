@@ -102,15 +102,25 @@ def _create_material_transcode_tasks_table() -> None:
 
 def _add_materials_columns() -> None:
     statements = []
+    added_columns = []
 
     if not _has_column("materials", "status"):
         statements.append("ALTER TABLE materials ADD COLUMN status VARCHAR(50) NOT NULL DEFAULT 'ready';")
+        added_columns.append("status")
+    else:
+        print("✓ status 字段已存在")
 
     if not _has_column("materials", "original_path"):
         statements.append("ALTER TABLE materials ADD COLUMN original_path VARCHAR(500) NULL;")
+        added_columns.append("original_path")
+    else:
+        print("✓ original_path 字段已存在")
 
     if not _has_column("materials", "meta_json"):
         statements.append("ALTER TABLE materials ADD COLUMN meta_json TEXT NULL;")
+        added_columns.append("meta_json")
+    else:
+        print("✓ meta_json 字段已存在")
 
     # MySQL：尽量把 path 改成可空（方案C：processing 可能暂时无可播放文件）
     # SQLite：修改列约束较麻烦，保持现状即可（我们会给 path 写入占位输出路径）
@@ -118,16 +128,20 @@ def _add_materials_columns() -> None:
         try:
             if _has_column("materials", "path"):
                 statements.append("ALTER TABLE materials MODIFY COLUMN path VARCHAR(500) NULL;")
+                added_columns.append("path (修改为可空)")
         except Exception:
             pass
 
     if not statements:
+        print("所有字段都已存在，无需迁移")
         return
 
+    print(f"\n正在添加缺失的字段: {', '.join(added_columns)}")
     with get_db() as db:
         for stmt in statements:
             db.execute(text(stmt))
         db.commit()
+    print(f"✓ 已成功添加 {len(added_columns)} 个字段")
 
 
 def migrate() -> None:

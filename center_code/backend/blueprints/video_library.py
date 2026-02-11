@@ -7,7 +7,7 @@ import sys
 import os
 from werkzeug.utils import secure_filename
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from utils import response_success, response_error, login_required
+from utils import response_success, response_error, login_required, get_current_user_id
 from models import VideoLibrary
 from db import get_db
 try:
@@ -24,6 +24,94 @@ except ImportError:
     print("警告：腾讯云COS SDK未安装，视频库将使用本地存储")
 
 video_library_bp = Blueprint('video_library', __name__, url_prefix='/api/video-library')
+
+
+def _extract_cos_key_from_url(url: str) -> str:
+    """
+    从COS URL中提取COS key（对象键）
+    
+    Args:
+        url: COS URL（可能是预签名URL或普通URL）
+    
+    Returns:
+        COS key，如果无法提取则返回None
+    """
+    if not url:
+        return None
+    
+    try:
+        from config import COS_DOMAIN, COS_SCHEME, COS_BUCKET, COS_REGION
+        
+        # 如果是预签名URL，先提取基础URL部分（去掉查询参数）
+        if '?' in url:
+            url = url.split('?')[0]
+        
+        # 方法1：使用自定义域名
+        if COS_DOMAIN and COS_DOMAIN in url:
+            cos_key = url.replace(COS_DOMAIN.rstrip('/') + '/', '').lstrip('/')
+            return cos_key
+        
+        # 方法2：使用默认域名格式
+        # https://bucket.cos.region.myqcloud.com/key
+        prefix = f"{COS_SCHEME}://{COS_BUCKET}.cos.{COS_REGION}.myqcloud.com/"
+        if url.startswith(prefix):
+            cos_key = url.replace(prefix, '').lstrip('/')
+            return cos_key
+        
+        # 方法3：尝试从URL路径中提取（如果URL包含video/等路径）
+        # 假设URL格式为：.../video/2024/01/15/filename.mp4
+        if '/video/' in url:
+            parts = url.split('/video/')
+            if len(parts) > 1:
+                return 'video/' + parts[1].split('?')[0].lstrip('/')
+        
+        return None
+    except Exception as e:
+        print(f"[VideoLibrary] 提取COS key失败: {e}")
+        return None
+
+
+def _refresh_cos_url_if_needed(url: str) -> str:
+    """
+    如果需要，刷新COS URL（生成新的预签名URL）
+    
+    Args:
+        url: 原始URL
+    
+    Returns:
+        刷新后的URL（如果是COS URL）或原始URL
+    """
+    if not url or not COS_AVAILABLE:
+        return url
+    
+    # 检查是否是COS URL
+    try:
+        from config import COS_DOMAIN, COS_BUCKET
+        is_cos_url = False
+        
+        if COS_DOMAIN and COS_DOMAIN in url:
+            is_cos_url = True
+        elif COS_BUCKET and (f'cos.' in url or COS_BUCKET in url):
+            is_cos_url = True
+        
+        if not is_cos_url:
+            return url
+        
+        # 提取COS key
+        cos_key = _extract_cos_key_from_url(url)
+        if not cos_key:
+            return url
+        
+        # 生成新的预签名URL（7天有效期）
+        try:
+            new_url = get_file_url(cos_key, use_presigned=True, expires_in=86400 * 7)
+            return new_url
+        except Exception as e:
+            print(f"[VideoLibrary] 生成预签名URL失败: {e}，使用原始URL")
+            return url
+    except Exception as e:
+        print(f"[VideoLibrary] 刷新COS URL时出错: {e}")
+        return url
 
 
 @video_library_bp.route('', methods=['GET'])
@@ -74,13 +162,19 @@ def get_videos():
         - 结果按创建时间倒序排列
     """
     try:
+        # 获取当前用户ID，确保数据隔离
+        user_id = get_current_user_id()
+        if not user_id:
+            return response_error('请先登录', 401)
+        
         search = request.args.get('search')
         platform = request.args.get('platform')
         limit = request.args.get('limit', type=int, default=50)
         offset = request.args.get('offset', type=int, default=0)
         
         with get_db() as db:
-            query = db.query(VideoLibrary)
+            # 只查询当前用户的视频
+            query = db.query(VideoLibrary).filter(VideoLibrary.user_id == user_id)
             
             if search:
                 query = query.filter(
@@ -95,11 +189,15 @@ def get_videos():
             
             videos_list = []
             for video in videos:
+                # 动态刷新COS URL，确保预签名URL不会过期
+                video_url = _refresh_cos_url_if_needed(video.video_url)
+                thumbnail_url = _refresh_cos_url_if_needed(video.thumbnail_url) if video.thumbnail_url else None
+                
                 videos_list.append({
                     'id': video.id,
                     'video_name': video.video_name,
-                    'video_url': video.video_url,
-                    'thumbnail_url': video.thumbnail_url,
+                    'video_url': video_url,
+                    'thumbnail_url': thumbnail_url,
                     'video_size': video.video_size,
                     'duration': video.duration,
                     'platform': video.platform,
@@ -175,6 +273,11 @@ def upload_video():
         - 如果只提供了URL，则直接保存到数据库
     """
     try:
+        # 获取当前用户ID，确保数据隔离
+        user_id = get_current_user_id()
+        if not user_id:
+            return response_error('请先登录', 401)
+        
         # 检查是否有文件上传
         if 'file' in request.files and COS_AVAILABLE:
             # 处理文件上传
@@ -239,6 +342,7 @@ def upload_video():
                 # 保存到数据库
                 with get_db() as db:
                     video = VideoLibrary(
+                        user_id=user_id,  # 关联当前用户
                         video_name=video_name,
                         video_url=video_url,
                         thumbnail_url=thumbnail_url,
@@ -279,6 +383,7 @@ def upload_video():
             
             with get_db() as db:
                 video = VideoLibrary(
+                    user_id=user_id,  # 关联当前用户
                     video_name=video_name,
                     video_url=video_url,
                     thumbnail_url=data.get('thumbnail_url'),
@@ -353,11 +458,15 @@ def get_video(video_id):
             if not video:
                 return response_error('Video not found', 404)
             
+            # 动态刷新COS URL，确保预签名URL不会过期
+            video_url = _refresh_cos_url_if_needed(video.video_url)
+            thumbnail_url = _refresh_cos_url_if_needed(video.thumbnail_url) if video.thumbnail_url else None
+            
             return response_success({
                 'id': video.id,
                 'video_name': video.video_name,
-                'video_url': video.video_url,
-                'thumbnail_url': video.thumbnail_url,
+                'video_url': video_url,
+                'thumbnail_url': thumbnail_url,
                 'video_size': video.video_size,
                 'duration': video.duration,
                 'platform': video.platform,
@@ -412,9 +521,18 @@ def update_video(video_id):
         - 如果视频不存在，返回 404 错误
     """
     try:
+        # 获取当前用户ID，确保数据隔离
+        user_id = get_current_user_id()
+        if not user_id:
+            return response_error('请先登录', 401)
+        
         data = request.json
         with get_db() as db:
-            video = db.query(VideoLibrary).filter(VideoLibrary.id == video_id).first()
+            # 只查询当前用户的视频
+            video = db.query(VideoLibrary).filter(
+                VideoLibrary.id == video_id,
+                VideoLibrary.user_id == user_id
+            ).first()
             
             if not video:
                 return response_error('Video not found', 404)
@@ -472,8 +590,17 @@ def delete_video(video_id):
         - 如果视频不存在，返回 404 错误
     """
     try:
+        # 获取当前用户ID，确保数据隔离
+        user_id = get_current_user_id()
+        if not user_id:
+            return response_error('请先登录', 401)
+        
         with get_db() as db:
-            video = db.query(VideoLibrary).filter(VideoLibrary.id == video_id).first()
+            # 只查询当前用户的视频
+            video = db.query(VideoLibrary).filter(
+                VideoLibrary.id == video_id,
+                VideoLibrary.user_id == user_id
+            ).first()
             
             if not video:
                 return response_error('Video not found', 404)
