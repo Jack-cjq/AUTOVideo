@@ -1,0 +1,12 @@
+center_code/uploads/
+center_code/uploads/**
+center_code/backend/.env
+.env
+.env.*
+__pycache__/
+*.pyc
+*.pyo
+*.log
+node_modules/
+dist/
+build/

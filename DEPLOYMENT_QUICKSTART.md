@@ -198,7 +198,7 @@ sudo tail -f /var/log/nginx/autovideo_access.log
 
 ```bash
 # 测试本地访问
-curl http://localhost:8080/api/health
+curl http://localhost:8081/api/health
 
 # 测试通过 Nginx 访问
 curl http://localhost/api/health
@@ -215,7 +215,7 @@ curl http://localhost/api/health
 sudo journalctl -u autovideo -n 50
 
 # 检查端口是否被占用
-sudo netstat -tlnp | grep 8080
+sudo netstat -tlnp | grep 8081
 ```
 
 ### 2. 数据库连接失败

@@ -190,7 +190,7 @@ BAIDU_SECRET_KEY=your_baidu_secret_key
 FFMPEG_PATH=/usr/bin/ffmpeg
 
 # 服务端口
-PORT=8080
+PORT=8081
 EOF
     
     warn "已创建 .env 文件，请编辑 $BACKEND_DIR/.env 并填入正确的配置"
@@ -340,7 +340,7 @@ server {
     client_max_body_size 500M;
 
     location / {
-        proxy_pass http://127.0.0.1:8080;
+        proxy_pass http://127.0.0.1:8081;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
