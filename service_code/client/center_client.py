@@ -86,6 +86,7 @@ class CenterClient:
             finally:
                 s.close()
             
+            # 增加超时时间到15秒，以便后端有足够时间初始化数据库连接
             response = requests.post(
                 f'{self.center_base_url}/api/devices/register',
                 json={
@@ -93,7 +94,7 @@ class CenterClient:
                     'device_name': self.device_name,
                     'ip_address': ip_address
                 },
-                timeout=10
+                timeout=15
             )
             
             if response.status_code in [200, 201]:
@@ -120,6 +121,12 @@ class CenterClient:
                 
                 douyin_logger.error(f"Failed to register device: {response.text}")
                 return False
+        except requests.exceptions.Timeout:
+            douyin_logger.warning(f"Device registration timeout, server may still be starting up")
+            return False
+        except requests.exceptions.ConnectionError as e:
+            douyin_logger.warning(f"Device registration connection error: {e}, server may still be starting up")
+            return False
         except Exception as e:
             douyin_logger.error(f"Error registering device: {e}")
             return False
@@ -446,14 +453,15 @@ class CenterClient:
             douyin_logger.warning("Client is already running")
             return
         
-        # 先注册设备（带重试机制）
-        max_retries = 5
-        retry_delay = 3  # 秒
+        # 先注册设备（带重试机制，增加重试次数和延迟时间以应对后端启动慢的情况）
+        max_retries = 8  # 增加重试次数
+        retry_delay = 5  # 增加重试延迟到5秒
         for attempt in range(max_retries):
             if self.register_device():
                 break
             if attempt < max_retries - 1:
                 douyin_logger.warning(f"Failed to register device (attempt {attempt + 1}/{max_retries}), retrying in {retry_delay} seconds...")
+                douyin_logger.info(f"Server may still be starting up, waiting {retry_delay} seconds before retry...")
                 time.sleep(retry_delay)
             else:
                 douyin_logger.error("Failed to register device after all retries, client will not start")
@@ -462,7 +470,8 @@ class CenterClient:
                 douyin_logger.error("Troubleshooting:")
                 douyin_logger.error("  1. Check if the center server is running")
                 douyin_logger.error("  2. Verify the server address is correct")
-                douyin_logger.error("  3. Set CENTER_BASE_URL environment variable if needed:")
+                douyin_logger.error("  3. Wait a bit longer if the server just started (database initialization may take time)")
+                douyin_logger.error("  4. Set CENTER_BASE_URL environment variable if needed:")
                 douyin_logger.error("     Windows PowerShell: $env:CENTER_BASE_URL='http://127.0.0.1:8080'")
                 douyin_logger.error("     Linux/Mac: export CENTER_BASE_URL='http://127.0.0.1:8080'")
                 return

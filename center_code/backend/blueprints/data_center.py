@@ -5,12 +5,50 @@ from flask import Blueprint, request
 from datetime import datetime, timedelta
 import sys
 import os
+import re
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils import response_success, response_error, login_required
 from models import Account, AccountStats, VideoTask
 from db import get_db
 
 data_center_bp = Blueprint('data_center', __name__, url_prefix='/api/data-center')
+
+
+def parse_iso_datetime(date_string):
+    """
+    解析ISO格式的日期字符串，支持多种格式包括带Z后缀的UTC时间
+    
+    Args:
+        date_string: ISO格式的日期字符串，如 '2026-02-15T04:37:58.032Z' 或 '2026-02-15T04:37:58.032+00:00'
+    
+    Returns:
+        datetime对象
+    
+    Raises:
+        ValueError: 如果日期字符串格式无效
+    """
+    if not date_string:
+        return None
+    
+    # 将 'Z' 后缀替换为 '+00:00'（UTC时间）
+    # 这样可以兼容 '2026-02-15T04:37:58.032Z' 格式
+    if date_string.endswith('Z'):
+        date_string = date_string[:-1] + '+00:00'
+    elif not re.search(r'[+-]\d{2}:\d{2}$', date_string):
+        # 如果没有时区信息，添加+00:00（假设是UTC）
+        date_string = date_string + '+00:00'
+    
+    try:
+        # 使用 fromisoformat 解析（Python 3.7+支持）
+        return datetime.fromisoformat(date_string)
+    except ValueError:
+        # 如果 fromisoformat 失败，尝试使用 dateutil（如果可用）
+        try:
+            from dateutil import parser
+            return parser.parse(date_string.replace('+00:00', 'Z') if '+00:00' in date_string else date_string)
+        except ImportError:
+            # 如果 dateutil 不可用，抛出更详细的错误信息
+            raise ValueError(f"Invalid isoformat string: '{date_string}'. Please install python-dateutil for better date parsing support.")
 
 
 @data_center_bp.route('/video-stats', methods=['GET'])
@@ -106,12 +144,13 @@ def get_video_stats():
                     
                     # 如果指定了日期范围
                     if start_date and end_date:
-                        start = datetime.fromisoformat(start_date)
-                        end = datetime.fromisoformat(end_date)
-                        stats_query = stats_query.filter(
-                            AccountStats.stat_date >= start,
-                            AccountStats.stat_date <= end
-                        )
+                        start = parse_iso_datetime(start_date)
+                        end = parse_iso_datetime(end_date)
+                        if start and end:
+                            stats_query = stats_query.filter(
+                                AccountStats.stat_date >= start,
+                                AccountStats.stat_date <= end
+                            )
                     else:
                         # 默认最近7天
                         end = datetime.now()
@@ -158,12 +197,13 @@ def get_video_stats():
             
             # 如果指定了日期范围
             if start_date and end_date:
-                start = datetime.fromisoformat(start_date)
-                end = datetime.fromisoformat(end_date)
-                stats_query = stats_query.filter(
-                    AccountStats.stat_date >= start,
-                    AccountStats.stat_date <= end
-                )
+                start = parse_iso_datetime(start_date)
+                end = parse_iso_datetime(end_date)
+                if start and end:
+                    stats_query = stats_query.filter(
+                        AccountStats.stat_date >= start,
+                        AccountStats.stat_date <= end
+                    )
             else:
                 # 默认最近7天
                 end = datetime.now()
